@@ -1,8 +1,6 @@
 #Imports
 
 import os 
-abra=os.getcwd() #when lost, teleport to abra
-
 from pathlib import Path
 
 import cellpose
@@ -95,57 +93,6 @@ def prep_new_segmentation(data_loc,n_ims_w):
     return model_batches
     
 
-
-# ---------- JSONL: build offset index once ----------
-def build_jsonl_offset_index(jsonl_path):
-    idx = {}
-    with open(jsonl_path, "rb") as f:
-        while True:
-            pos = f.tell()
-            line = f.readline()
-            if not line:
-                break
-            rec = json.loads(line.decode("utf-8"))
-            idx[(rec["batch_index"], rec["image_index"], rec["channel"])] = pos
-    return idx
-
-def load_jsonl_record_fast(jsonl_path, idx, b, im, channel_name):
-    key = (b, im, channel_name)
-    pos = idx.get(key)
-    if pos is None:
-        return None
-    with open(jsonl_path, "rb") as f:
-        f.seek(pos)
-        line = f.readline()
-    return json.loads(line.decode("utf-8"))
-
-# ---------- Zarr ----------
-def open_experiment_store(zarr_path):
-    root = zarr.open_group(zarr_path, mode="r")
-    N = root.attrs.get("n_images_per_batch", None)
-    return root, N
-
-def load_processed_intensities(root, b, im, channel_name="BF"):
-    return root[f"processed_intensities/{channel_name}"][b, im]
-
-def load_segmentation_field(root, field, b, im, channel_name="BF"):
-    return root[f"segmentation/{field}/{channel_name}"][b, im]
-
-# ---------- all-in-one ----------
-def load_experiment_view(zroot, jsonl_path, jsonl_idx, b, im, channel_name="BF"):
-    view = {
-        "processed_intensities": load_processed_intensities(zroot, b, im, channel_name),
-        "intensity_image": load_segmentation_field(zroot, "intensity_image", b, im, channel_name),
-        "label_image": load_segmentation_field(zroot, "label_image", b, im, channel_name),
-        "mask_image": load_segmentation_field(zroot, "mask_image", b, im, channel_name),
-    }
-    rec = load_jsonl_record_fast(jsonl_path, jsonl_idx, b, im, channel_name) or {}
-    view["cell_outlines"] = rec.get("cell_outlines")
-    view["cell_properties"] = rec.get("cell_properties")
-    return view
-
-
-
 #  Fully updated: channelwise streaming saver + stripper + psutil memory checks
 #  - Saves one channel at a time (no duplicate JSONL records)
 #  - Strips segmentation objects down to ONLY:
@@ -153,7 +100,6 @@ def load_experiment_view(zroot, jsonl_path, jsonl_idx, b, im, channel_name="BF")
 #  - Uses Zarr v3-compatible resize (tuple shape) to avoid BoundsCheckError
 #  - Prints memory (RSS) at key points so you can see where it grows
 #  - CHATGPT helped a TON with this section (mostly the stream and save function
-
 
 
 # ---------- memory helper (psutil) ----------
@@ -361,7 +307,7 @@ def run_and_stream_save_channelwise_stripped(
             _ = batch.apply_pipeline(experiment_pipeline, ch, show_progress=show_progress)
             mem_gb("after pipeline")
 
-            # ✅ reduce memory: force processed intensities to float32
+            # reduce memory: force processed intensities to float32
             if hasattr(batch, "processed_intensities_dict") and ch in batch.processed_intensities_dict:
                 batch.processed_intensities_dict[ch] = [
                     np.asarray(x, dtype=np.float32) for x in batch.processed_intensities_dict[ch]
@@ -403,88 +349,3 @@ def run_and_stream_save_channelwise_stripped(
         mem_gb("batch end")
 
     print("\nDone. Saved:", out_zarr, "and", out_jsonl)
-
-class ExperimentStore:
-    """
-    Fast read-only interface to:
-      - Zarr arrays (raw + processed intensities, segmentation label/mask)
-      - JSONL (cell_outlines + cell_properties), indexed for O(1) lookup
-    """
-    def __init__(self, zarr_path, jsonl_path):
-        self.zarr_path = zarr_path
-        self.jsonl_path = jsonl_path
-
-        self.root = zarr.open_group(zarr_path, mode="r")
-        self.N = self.root.attrs.get("n_images_per_batch", None)
-        self.channels = self.root.attrs.get("channels", [])
-
-        self._jsonl_index = self._build_jsonl_offset_index()
-
-    # ---------- JSONL indexing ----------
-    def _build_jsonl_offset_index(self):
-        idx = {}
-        with open(self.jsonl_path, "rb") as f:
-            while True:
-                pos = f.tell()
-                line = f.readline()
-                if not line:
-                    break
-                rec = json.loads(line.decode("utf-8"))
-                idx[(rec["batch_index"], rec["image_index"], rec["channel"])] = pos
-        return idx
-
-    def _load_jsonl_record(self, b, im, channel_name):
-        key = (b, im, channel_name)
-        pos = self._jsonl_index.get(key)
-        if pos is None:
-            return None
-        with open(self.jsonl_path, "rb") as f:
-            f.seek(pos)
-            line = f.readline()
-        return json.loads(line.decode("utf-8"))
-
-    # ---------- Zarr getters ----------
-    def get_raw_intensities(self, b, im, channel_name="CY5"):
-        """Raw intensities array; use .ravel() to match your old .flatten() usage."""
-        return self.root[f"raw_intensities/{channel_name}"][b, im]
-
-    def get_processed_intensities(self, b, im, channel_name="BF"):
-        return self.root[f"processed_intensities/{channel_name}"][b, im]
-
-    def get_label_image(self, b, im, channel_name="BF"):
-        return self.root[f"segmentation/label_image/{channel_name}"][b, im]
-
-    def get_mask_image(self, b, im, channel_name="BF"):
-        return self.root[f"segmentation/mask_image/{channel_name}"][b, im]
-
-    # ---------- JSONL getters ----------
-    def get_cell_outlines(self, b, im, channel_name="BF"):
-        rec = self._load_jsonl_record(b, im, channel_name)
-        return None if rec is None else rec.get("cell_outlines")
-
-    def get_cell_properties(self, b, im, channel_name="BF"):
-        """Returns a pandas DataFrame equivalent to pd.DataFrame(segmentation_mask.cell_properties)."""
-        rec = self._load_jsonl_record(b, im, channel_name)
-        if rec is None:
-            return None
-        props = rec.get("cell_properties")
-        return None if props is None else pd.DataFrame(props)
-
-    # ---------- convenience ----------
-    def get(self, b, im, channel_name="BF", include_raw=False):
-        """
-        Returns a dict with arrays + outlines/properties.
-        include_raw=True also returns raw intensities.
-        """
-        out = {
-            "processed_intensities": self.get_processed_intensities(b, im, channel_name),
-            "label_image": self.get_label_image(b, im, channel_name),
-            "mask_image": self.get_mask_image(b, im, channel_name),
-        }
-        if include_raw:
-            out["raw_intensities"] = self.get_raw_intensities(b, im, channel_name)
-
-        rec = self._load_jsonl_record(b, im, channel_name) or {}
-        out["cell_outlines"] = rec.get("cell_outlines")
-        out["cell_properties"] = rec.get("cell_properties")
-        return out
