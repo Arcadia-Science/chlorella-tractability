@@ -1,12 +1,10 @@
-#Imports
-
+#imports: general
 import os 
 from pathlib import Path
-
-import cellpose
-import copy
+from collections.abc import Sequence
 import numpy as np
-import skimage as ski
+
+#imports: segmentation
 from arcadia_microscopy_tools import Channel
 from arcadia_microscopy_tools.batch import ImageBatch
 from arcadia_microscopy_tools.model import SegmentationModel
@@ -17,33 +15,9 @@ from arcadia_microscopy_tools.operations import (
 from arcadia_microscopy_tools.pipeline import ImageOperation, Pipeline
 from natsort import natsorted
 
-import matplotlib.pyplot as plt
-import matplotlib
-import pandas as pd
-import seaborn as sns
-from statsmodels.graphics.gofplots import qqplot_2samples
-from statsmodels.graphics.gofplots import ProbPlot
-
-import random
-import time
-from sklearn.manifold import TSNE
-#faster tsne
-from scipy import stats
-from scipy.spatial.distance import pdist
-from scipy.cluster.hierarchy import linkage
-from scipy.stats import gaussian_kde
-import math
-
-#PCA import tools
-from scipy import linalg as LA
-import itertools
-import pickle
-
-
+#imports: data management
 import json
 import zarr
-import pandas as pd
-import json
 import zarr
 import psutil
 import gc
@@ -54,43 +28,90 @@ from enum import Enum
 def consecutive_number_strings(num_digits: int, length: int, start: int = 0):
     return [str(start + i).zfill(num_digits) for i in range(length)]
 
-def prep_new_segmentation(data_loc,n_ims_w):
+def debug_batch_attrs(batch, label=""):
+    print(f"\n[BATCH ATTRS] {label}")
+    for k, v in sorted(vars(batch).items()):
+        try:
+            if isinstance(v, dict):
+                info = f"dict len={len(v)}"
+            elif isinstance(v, list):
+                info = f"list len={len(v)}"
+            else:
+                info = type(v).__name__
+            print(f"  {k}: {info}")
+        except Exception as e:
+            print(f"  {k}: <error inspecting: {e}>")
 
-    # Set input directory
+def clear_image_payloads(batch):
+    if not hasattr(batch, "images") or not isinstance(batch.images, list):
+        return
+
+    for img in batch.images:
+        for attr_name, attr_value in list(vars(img).items()):
+            try:
+                if isinstance(attr_value, dict):
+                    attr_value.clear()
+                elif isinstance(attr_value, list):
+                    attr_value.clear()
+                elif isinstance(attr_value, np.ndarray):
+                    setattr(img, attr_name, None)
+            except Exception:
+                pass
 
 
-    input_directory = Path(data_loc)
-    unsorted_experiment_nd2_paths = natsorted(input_directory.glob("*.nd2"))
+class _LazyImageBatchSequence(Sequence):
+    """
+    Sequence-like wrapper that lazily constructs ImageBatch objects on demand.
 
-    #Organize experiment into batches. Each batch contains one image (length=1) per well. Max Number of batches are the total images taken per well
+    Preserves:
+      - iteration: for batch in model_batches
+      - len(model_batches)
+      - indexing: model_batches[i]
 
+    while avoiding construction of all ImageBatch objects up front.
+    """
+    def __init__(self, nd2_paths_batches):
+        self._nd2_paths_batches = nd2_paths_batches
 
-    
-    nd2_paths_batches=[]
-    
-    for i in range(n_ims_w):
-        experiment_nd2_paths=[]
-        for p in unsorted_experiment_nd2_paths:
-            if any(item in str(p) for item in consecutive_number_strings(num_digits=4,length=1,start=i)):
-                experiment_nd2_paths.append(p)
-        nd2_paths_batches.append(experiment_nd2_paths)
-    
-    #Will Run the model in batches, Each batch will contain one image from each well (as organized above)
-     
-    
-    model_batches=[]
-    
-    for batch in nd2_paths_batches:
-    
-        # Create batch
-        experiment_batch = ImageBatch.from_paths(
-            batch,
-            batch_size=len(batch),
+    def __len__(self):
+        return len(self._nd2_paths_batches)
+
+    def __getitem__(self, idx):
+        batch_paths = self._nd2_paths_batches[idx]
+        return ImageBatch.from_paths(
+            batch_paths,
+            batch_size=len(batch_paths),
             shuffle=False,
             random_state=37,
         )
-        model_batches.append(experiment_batch)
-    return model_batches
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
+
+
+def prep_new_segmentation(data_loc, n_ims_w):
+    # Set input directory
+    input_directory = Path(data_loc)
+    unsorted_experiment_nd2_paths = natsorted(input_directory.glob("*.nd2"))
+
+    # Organize experiment into batches. Each batch contains one image (length=1)
+    # per well. Max number of batches is the total images taken per well.
+    nd2_paths_batches = []
+
+    for i in range(n_ims_w):
+        experiment_nd2_paths = []
+        target_str = str(i).zfill(4)
+
+        for p in unsorted_experiment_nd2_paths:
+            if target_str in str(p):
+                experiment_nd2_paths.append(p)
+
+        nd2_paths_batches.append(experiment_nd2_paths)
+
+    # Return a lazy sequence so downstream code can iterate exactly as before,
+    # but ImageBatch objects are only created when needed.
+    return _LazyImageBatchSequence(nd2_paths_batches)
     
 
 #  Fully updated: channelwise streaming saver + stripper + psutil memory checks
@@ -99,7 +120,7 @@ def prep_new_segmentation(data_loc,n_ims_w):
 #      mask_image, label_image, intensity_image, cell_outlines, cell_properties
 #  - Uses Zarr v3-compatible resize (tuple shape) to avoid BoundsCheckError
 #  - Prints memory (RSS) at key points so you can see where it grows
-#  - CHATGPT helped a TON with this section (mostly the stream and save function
+#  - CHATGPT helped a TON with this section (mostly the stream and save function)
 
 
 # ---------- memory helper (psutil) ----------
@@ -141,10 +162,22 @@ def strip_segmentation_mask(sm):
     """
     out = {}
     for f in ("mask_image", "label_image", "intensity_image"):
-        out[f] = np.asarray(getattr(sm, f)) if hasattr(sm, f) else None
+        val = getattr(sm, f, None)
+        if val is None:
+            out[f] = None
+        elif isinstance(val, np.ndarray):
+            out[f] = val
+        else:
+            out[f] = np.asarray(val)
 
     outlines = getattr(sm, "cell_outlines", None)
-    out["cell_outlines"] = [np.asarray(poly) for poly in outlines] if outlines is not None else None
+    if outlines is None:
+        out["cell_outlines"] = None
+    else:
+        out["cell_outlines"] = [
+            poly if isinstance(poly, np.ndarray) else np.asarray(poly)
+            for poly in outlines
+        ]
 
     out["cell_properties"] = getattr(sm, "cell_properties", None)
     return out
@@ -288,6 +321,8 @@ def run_and_stream_save_channelwise_stripped(
       - append ONLY that channel to disk (raw + processed + seg + jsonl)
       - drop channel outputs from the batch
       - print memory at key steps
+
+    Same function signature and same output layout as before.
     """
     writer = ExperimentStoreWriter(out_zarr=out_zarr, out_jsonl=out_jsonl)
 
@@ -295,57 +330,104 @@ def run_and_stream_save_channelwise_stripped(
         print(f"\n===== BATCH {b_idx+1} START =====")
         mem_gb("batch start")
 
-        for ch in channels:
-            cname = ch_name(ch)
-            print(f"\n--- Channel {cname} ---")
-            mem_gb("before pipeline")
+        try:
+            for ch in channels:
+                cname = ch_name(ch)
+                print(f"\n--- Channel {cname} ---")
+                mem_gb("before pipeline")
 
-            experiment_pipeline = Pipeline([
-                ImageOperation(get_background_subtracted_intensities, percentile=0),
-                ImageOperation(rescale_intensity_by_percentiles, percentile_range=(0.3, 99.7)),
-            ])
-            _ = batch.apply_pipeline(experiment_pipeline, ch, show_progress=show_progress)
-            mem_gb("after pipeline")
+                experiment_pipeline = Pipeline([
+                    ImageOperation(get_background_subtracted_intensities, percentile=0),
+                    ImageOperation(rescale_intensity_by_percentiles, percentile_range=(0.3, 99.7)),
+                ])
 
-            # reduce memory: force processed intensities to float32
-            if hasattr(batch, "processed_intensities_dict") and ch in batch.processed_intensities_dict:
-                batch.processed_intensities_dict[ch] = [
-                    np.asarray(x, dtype=np.float32) for x in batch.processed_intensities_dict[ch]
-                ]
-            mem_gb("after cast proc->float32")
+                _ = batch.apply_pipeline(experiment_pipeline, ch, show_progress=show_progress)
+                mem_gb("after pipeline")
 
-            model = SegmentationModel(flow_threshold=flow_threshold, cellprob_threshold=cellprob_threshold)
-            _ = batch.segment(model, channel=ch)
-            mem_gb("after segment")
+                # Reduce memory pressure: cast processed intensities to float32
+                # as early as possible, avoiding unnecessary copies when possible.
+                if hasattr(batch, "processed_intensities_dict") and ch in batch.processed_intensities_dict:
+                    proc_list = batch.processed_intensities_dict[ch]
+                    batch.processed_intensities_dict[ch] = [
+                        x.astype(np.float32, copy=False) if isinstance(x, np.ndarray)
+                        else np.asarray(x, dtype=np.float32)
+                        for x in proc_list
+                    ]
+                    del proc_list
 
-            # --- strip segmentation outputs and drop original refs ASAP ---
-            if hasattr(batch, "segmentation_masks_dict") and ch in batch.segmentation_masks_dict:
-                original_seg_list = batch.segmentation_masks_dict[ch]
-                stripped = [strip_segmentation_mask(sm) for sm in original_seg_list]
-                batch.segmentation_masks_dict[ch] = stripped
-                del original_seg_list
                 gc.collect()
+                #mem_gb("after cast proc->float32")
 
-            mem_gb("after strip (and del originals)")
+                model = SegmentationModel(
+                    flow_threshold=flow_threshold,
+                    cellprob_threshold=cellprob_threshold,
+                )
+                _ = batch.segment(model, channel=ch)
+                mem_gb("after segment")
 
-            # ✅ append ONLY this channel (no duplicates)
-            writer.append_batch(batch, b_idx=b_idx, channels_subset=[ch])
-            mem_gb("after save")
+                # Strip segmentation outputs immediately so we do not retain
+                # heavyweight segmentation objects longer than needed.
+                if hasattr(batch, "segmentation_masks_dict") and ch in batch.segmentation_masks_dict:
+                    original_seg_list = batch.segmentation_masks_dict[ch]
+                    batch.segmentation_masks_dict[ch] = [
+                        strip_segmentation_mask(sm) for sm in original_seg_list
+                    ]
+                    del original_seg_list
+                    gc.collect()
 
-            # ✅ drop in-memory outputs for this channel
-            if hasattr(batch, "processed_intensities_dict"):
-                batch.processed_intensities_dict.pop(ch, None)
-            if hasattr(batch, "segmentation_masks_dict"):
-                batch.segmentation_masks_dict.pop(ch, None)
+                #mem_gb("after strip (and del originals)")
 
-            del model, experiment_pipeline
+                # Append ONLY this channel to disk
+                writer.append_batch(batch, b_idx=b_idx, channels_subset=[ch])
+                #mem_gb("after save")
+
+                # Drop in-memory outputs for this channel immediately after save
+                if hasattr(batch, "processed_intensities_dict"):
+                    batch.processed_intensities_dict.pop(ch, None)
+
+                if hasattr(batch, "segmentation_masks_dict"):
+                    batch.segmentation_masks_dict.pop(ch, None)
+
+                # Clear large locals
+                del model
+                del experiment_pipeline
+                gc.collect()
+                mem_gb("after cleanup")
+
+                print(f"    completed channel {cname}")
+
+            #debug_batch_attrs(batch, "before cleanup")
+
+            # After all channels, clear any remaining dict contents on the batch
+            if hasattr(batch, "processed_intensities_dict") and isinstance(batch.processed_intensities_dict, dict):
+                batch.processed_intensities_dict.clear()
+
+            if hasattr(batch, "segmentation_masks_dict") and isinstance(batch.segmentation_masks_dict, dict):
+                batch.segmentation_masks_dict.clear()
+
+            clear_image_payloads(batch)
+
+            if hasattr(batch, "images") and isinstance(batch.images, list):
+                batch.images.clear()
+
+            # Defensive cleanup for other possible large dict-like caches
+            for attr_name in [
+                "raw_intensities_dict",
+                "background_subtracted_intensities_dict",
+                "intensity_images_dict",
+                "label_images_dict",
+                "mask_images_dict",
+            ]:
+                if hasattr(batch, attr_name):
+                    attr = getattr(batch, attr_name)
+                    if isinstance(attr, dict):
+                        attr.clear()
+
+            #debug_batch_attrs(batch, "after cleanup")
+
+        finally:
+            del batch
             gc.collect()
-            mem_gb("after cleanup")
-
-            print(f"    completed channel {cname}")
-
-        del batch
-        gc.collect()
-        mem_gb("batch end")
+            mem_gb("batch end")
 
     print("\nDone. Saved:", out_zarr, "and", out_jsonl)
