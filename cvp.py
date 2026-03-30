@@ -181,8 +181,15 @@ class ExperimentStore:
         return json.loads(line.decode("utf-8"))
 
     # ---------- Zarr getters ----------
+    def _get_array_from_possible_paths(self, possible_paths, b, im):
+        for path in possible_paths:
+            try:
+                return self.root[path][b, im]
+            except KeyError:
+                continue
+        raise KeyError(f"None of these dataset paths exist: {possible_paths}")
+
     def get_raw_intensities(self, b, im, channel_name="CY5"):
-        """Raw intensities array; use .ravel() to match your old .flatten() usage."""
         return self.root[f"raw_intensities/{channel_name}"][b, im]
 
     def get_processed_intensities(self, b, im, channel_name="BF"):
@@ -299,15 +306,15 @@ def view_clones(zarr_roots,exp_names,clone_numbers=[0],image_number=0):
         new_mask_arr_cy5 = np.where(mask_arr_cy5 != 0, 1, 0)
 
         if len(clone_numbers) == 1:
-            ax.imshow(np.multiply(zroots[e].get_processed_intensities(image_number, clone_numbers[e], "BF"),new_mask_arr_bf),cmap='Greys')
-            ax.imshow(np.multiply(zroots[e].get_processed_intensities(image_number, clone_numbers[e], "CY5"),new_mask_arr_cy5),cmap='Greens',vmin=0,vmax=1,alpha=.8)
+            ax.imshow(np.multiply(zarr_roots[e].get_processed_intensities(image_number, clone_numbers[e], "BF"),new_mask_arr_bf),cmap='Greys')
+            ax.imshow(np.multiply(zarr_roots[e].get_processed_intensities(image_number, clone_numbers[e], "CY5"),new_mask_arr_cy5),cmap='Greens',vmin=0,vmax=1,alpha=.8)
             ax.set_xticks([]) 
             ax.set_yticks([])
 
 
         if len(clone_numbers) > 1:
-            ax[e].imshow(np.multiply(zroots[e].get_processed_intensities(image_number, clone_numbers[e], "BF"),new_mask_arr_bf),cmap='cubehelix',alpha=1)
-            ax[e].imshow(np.multiply(zroots[e].get_processed_intensities(image_number, clone_numbers[e], "CY5"),new_mask_arr_cy5),cmap='Greens',vmin=0,vmax=1,alpha=.8)
+            ax[e].imshow(np.multiply(zarr_roots[e].get_processed_intensities(image_number, clone_numbers[e], "BF"),new_mask_arr_bf),cmap='cubehelix',alpha=1)
+            ax[e].imshow(np.multiply(zarr_roots[e].get_processed_intensities(image_number, clone_numbers[e], "CY5"),new_mask_arr_cy5),cmap='Greens',vmin=0,vmax=1,alpha=.8)
             ax[e].set_xticks([]) 
             ax[e].set_yticks([])
             ax[e].set_title(exp_names[e] + ': Clone '  + str(clone_numbers[e]), fontsize=18)
