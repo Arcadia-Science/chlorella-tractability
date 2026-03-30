@@ -42,6 +42,24 @@ def debug_batch_attrs(batch, label=""):
         except Exception as e:
             print(f"  {k}: <error inspecting: {e}>")
 
+def debug_one_image(batch, label=""):
+    if hasattr(batch, "images") and batch.images:
+        img = batch.images[0]
+        print(f"\n[ONE IMAGE ATTRS] {label}")
+        for k, v in sorted(vars(img).items()):
+            try:
+                if isinstance(v, dict):
+                    info = f"dict len={len(v)}"
+                elif isinstance(v, list):
+                    info = f"list len={len(v)}"
+                elif isinstance(v, np.ndarray):
+                    info = f"ndarray shape={v.shape} dtype={v.dtype}"
+                else:
+                    info = type(v).__name__
+                print(f"  {k}: {info}")
+            except Exception as e:
+                print(f"  {k}: <error inspecting: {e}>")
+
 def clear_image_payloads(batch):
     if not hasattr(batch, "images") or not isinstance(batch.images, list):
         return
@@ -132,6 +150,66 @@ def mem_gb(label=""):
 # ---------- general helpers ----------
 def ch_name(ch):
     return getattr(ch, "name", str(ch))
+
+def _channel_index_from_image(img, channel):
+    """
+    Try to infer which plane in img.intensities corresponds to the requested channel.
+    Works with Channel enums or channel-name strings when metadata exposes names.
+    Falls back to common 2-channel BF/CY5 ordering.
+    """
+    cname = ch_name(channel)
+
+    # Try common metadata fields first
+    meta = getattr(img, "metadata", None)
+    candidate_lists = []
+
+    if meta is not None:
+        for attr_name in ["channels", "channel_names", "channel_labels"]:
+            if hasattr(meta, attr_name):
+                vals = getattr(meta, attr_name)
+                try:
+                    vals = list(vals)
+                    candidate_lists.append(vals)
+                except Exception:
+                    pass
+
+    # Search metadata-provided channel names
+    for vals in candidate_lists:
+        normalized = [str(v).upper() for v in vals]
+        if cname.upper() in normalized:
+            return normalized.index(cname.upper())
+
+    # Safe fallback for your current 2-channel case
+    # Based on your usage throughout cvp.py and notebooks:
+    # BF first, CY5 second.
+    if getattr(img, "intensities", None) is not None:
+        arr = np.asarray(img.intensities)
+        if arr.ndim >= 3 and arr.shape[0] == 2:
+            fallback = {"BF": 0, "CY5": 1}
+            if cname.upper() in fallback:
+                return fallback[cname.upper()]
+
+    raise ValueError(f"Could not determine channel index for channel {cname!r}")
+
+
+def _extract_raw_channel_images(batch, channel):
+    """
+    Return a list of raw 2D images, one per image in batch.images, for the requested channel.
+    """
+    if not hasattr(batch, "images") or not isinstance(batch.images, list):
+        raise ValueError("Batch has no .images list to extract raw intensities from.")
+
+    raw_list = []
+    for img in batch.images:
+        arr = np.asarray(img.intensities)
+        ch_idx = _channel_index_from_image(img, channel)
+
+        if arr.ndim < 3:
+            raise ValueError(f"Expected img.intensities to have at least 3 dims, got shape {arr.shape}")
+
+        raw_list.append(arr[ch_idx])
+
+    return raw_list
 
 def to_jsonable(x):
     if is_dataclass(x):
@@ -259,6 +337,16 @@ class ExperimentStoreWriter:
             for ch in channels_subset:
                 cname = ch_name(ch)
 
+                # ---- raw intensities ----
+                raw_list = _extract_raw_channel_images(batch, ch)
+                if len(raw_list) != self.N:
+                    raise ValueError(f"{cname}: expected N={self.N}, got {len(raw_list)}")
+
+                raw_arr = self._ensure_array(f"raw_intensities/{cname}", raw_list[0])
+                self._resize_for_batch(raw_arr, b_idx)
+                for im in range(self.N):
+                    raw_arr[b_idx, im] = np.asarray(raw_list[im])
+
                 # ---- processed intensities ----
                 if hasattr(batch, "processed_intensities_dict") and ch in batch.processed_intensities_dict:
                     proc_list = batch.processed_intensities_dict[ch]
@@ -329,6 +417,7 @@ def run_and_stream_save_channelwise_stripped(
     for b_idx, batch in enumerate(model_batches):
         print(f"\n===== BATCH {b_idx+1} START =====")
         mem_gb("batch start")
+        debug_one_image(batch, "batch start")
 
         try:
             for ch in channels:
