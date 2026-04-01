@@ -1807,45 +1807,6 @@ def cross_validated_performance(
         r2_scores.append(r2_score(y_test, y_pred))
 
     return r2_scores, y_test, y_pred
-
-
-#hold out strains for testing
-
-def cross_validated_performance(
-    data,
-    train_conditions,
-    test_condition,
-    model_type="ridge",
-    alpha=1,
-    n_splits=12
-):
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-
-    y_true = data[test_condition]
-    X_full = np.hstack([data[c] for c in train_conditions])
-
-    r2_scores = []
-
-    for train_idx, test_idx in kf.split(X_full):
-        X_train, X_test = X_full[train_idx], X_full[test_idx]
-        y_train, y_test = y_true[train_idx], y_true[test_idx]
-
-        if model_type == "ridge":
-            model = Ridge(alpha=alpha)
-        else:
-            model = PLSRegression(n_components=3)
-
-        pipeline = Pipeline([
-            ("scaler", StandardScaler()),
-            ("model", model)
-        ])
-
-        pipeline.fit(X_train, y_train)
-        y_pred = pipeline.predict(X_test)
-
-        r2_scores.append(r2_score(y_test, y_pred))
-
-    return r2_scores, y_test, y_pred
 #----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 def cross_validation_and_alpha_scan(training_dat,
                                     exp_colors,
