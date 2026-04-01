@@ -8,7 +8,8 @@ import seaborn as sns
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import arcadia_pycolor as apc
-apc.mpl.setup()
+font_path="~/Library/Fonts"
+apc.mpl.setup(font_dirpath=font_path)
 apc.plotly.setup()
 
 #matrices
@@ -16,7 +17,6 @@ import numpy as np
 import pandas as pd
 
 #segmentation
-import cellpose
 import skimage as ski
 from arcadia_microscopy_tools import Channel
 from arcadia_microscopy_tools.batch import ImageBatch
@@ -70,77 +70,12 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score, mean_squared_error
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.manifold import TSNE
-
-# Functions
-
-
-# ---------- JSONL: build offset index once ----------
-def build_jsonl_offset_index(jsonl_path):
-    idx = {}
-    with open(jsonl_path, "rb") as f:
-        while True:
-            pos = f.tell()
-            line = f.readline()
-            if not line:
-                break
-            rec = json.loads(line.decode("utf-8"))
-            idx[(rec["batch_index"], rec["image_index"], rec["channel"])] = pos
-    return idx
-
-def load_jsonl_record_fast(jsonl_path, idx, b, im, channel_name):
-    key = (b, im, channel_name)
-    pos = idx.get(key)
-    if pos is None:
-        return None
-    with open(jsonl_path, "rb") as f:
-        f.seek(pos)
-        line = f.readline()
-    return json.loads(line.decode("utf-8"))
-
-# ---------- Zarr ----------
-def open_experiment_store(zarr_path):
-    root = zarr.open_group(zarr_path, mode="r")
-    N = root.attrs.get("n_images_per_batch", None)
-    return root, N
-
-def load_processed_intensities(root, b, im, channel_name="BF"):
-    return root[f"processed_intensities/{channel_name}"][b, im]
-
-def load_segmentation_field(root, field, b, im, channel_name="BF"):
-    return root[f"segmentation/{field}/{channel_name}"][b, im]
-
-# ---------- all-in-one ----------
-def load_experiment_view(zroot, jsonl_path, jsonl_idx, b, im, channel_name="BF"):
-    view = {
-        "processed_intensities": load_processed_intensities(zroot, b, im, channel_name),
-        "intensity_image": load_segmentation_field(zroot, "intensity_image", b, im, channel_name),
-        "label_image": load_segmentation_field(zroot, "label_image", b, im, channel_name),
-        "mask_image": load_segmentation_field(zroot, "mask_image", b, im, channel_name),
-    }
-    rec = load_jsonl_record_fast(jsonl_path, jsonl_idx, b, im, channel_name) or {}
-    view["cell_outlines"] = rec.get("cell_outlines")
-    view["cell_properties"] = rec.get("cell_properties")
-    return view
-
-
-
-
-# =========================
-# FAST LOADER (UPDATED)
-# Works with the NEW on-disk schema:
-#   raw_intensities/<CHANNEL>                (B,N, ...)
-#   processed_intensities/<CHANNEL>          (B,N, ...)
-#   segmentation/label_image/<CHANNEL>       (B,N, H, W)
-#   segmentation/mask_image/<CHANNEL>        (B,N, H, W)
-# JSONL:
-#   batch_index, image_index, channel, cell_outlines, cell_properties
-#
-# NOTE: "intensity_image" is intentionally NOT saved anymore.
-# If you want a replacement, use processed_intensities.
-# =========================
-
-
-
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 class ExperimentStore:
     """
     Fast read-only interface to:
@@ -232,145 +167,706 @@ class ExperimentStore:
         out["cell_outlines"] = rec.get("cell_outlines")
         out["cell_properties"] = rec.get("cell_properties")
         return out
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def build_jsonl_offset_index(jsonl_path):
+    idx = {}
+    with open(jsonl_path, "rb") as f:
+        while True:
+            pos = f.tell()
+            line = f.readline()
+            if not line:
+                break
+            rec = json.loads(line.decode("utf-8"))
+            idx[(rec["batch_index"], rec["image_index"], rec["channel"])] = pos
+    return idx
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def showcase_clone_images_1_by_1(
+    zroots,
+    experiment=0,
+    field_of_view=0,
+    well=0,
+    f_size=[5, 5],
+    f_size_2=[5, 5],
+    show_labels=True,
+    marker_size_1=8,
+    marker_size_2=8,
+    marker_color_bf='yellow',
+    marker_color_cy='red',
 
-# =========================
-# Example usage:
-# =========================
-# store = ExperimentStore(
-#     "experiment_batches_20251209_091846_235_features.zarr",
-#     "experiment_batches_20251209_091846_235_features.jsonl",
-# )
-#
-# b, im = 0, 0
-# raw_flat = store.get_raw_intensities(b, im, "CY5").ravel()
-# proc = store.get_processed_intensities(b, im, "CY5")
-# label = store.get_label_image(b, im, "CY5")
-# mask  = store.get_mask_image(b, im, "CY5")
-# outlines = store.get_cell_outlines(b, im, "CY5")
-# df = store.get_cell_properties(b, im, "CY5")
+):
 
+    # --- Cellpose features ---
+    clone_cp_feats_bf = zroots[experiment].get_cell_properties(field_of_view, well, "BF")
+    clone_cp_feats_bf_mean = np.nanmean(zscore(clone_cp_feats_bf), axis=0)
 
-def euclidean_distance_ignore_nans(a, b):
-    # Calculate squared differences, NaNs here are fine for intermediate calculation
-    sq_diffs = (a - b) ** 2
-    # Sum the squared differences, ignoring NaNs
-    nansum_sq_diffs = np.nansum(sq_diffs)
-    # Take the square root
-    distance = np.sqrt(nansum_sq_diffs)
-    return distance
-
-
-def remove_rows_cols(array, row_indices, col_indices):
-    """
-    Removes specified rows and columns from a 2D numpy array.
-    """
-    # Remove rows (axis 0)
-    temp_array = np.delete(array, row_indices, axis=0)
-    # Remove columns (axis 1)
-    final_array = np.delete(temp_array, col_indices, axis=1)
-    return final_array
-
-# --- Usage ---
-# Create example 96x22 array (using smaller numbers for illustration)
-# arr = np.random.randint(0, 100, size=(96, 22))
-
-# Rows and columns 36 and 41 are removed (0-indexed, so 35 and 40)
-# modified_arr = remove_rows_cols(arr, [35, 40], [35, 40])
-
-def keep_indices(arr, row_indices, col_indices):
-    """
-    Returns a subarray containing only the specified row and column indices.
-    """
-    # Integer array indexing allows selecting specific rows and columns simultaneously
-    # By indexing with [row_indices, :], we grab rows; then [:, col_indices] grabs columns.
-    return arr[np.ix_(row_indices, col_indices)]
-
-# Example usage:
-# my_array = np.random.rand(96, 22)
-# rows_to_keep = [0, 1, 2, 36, 41]
-# cols_to_keep = [5, 10, 15]
-# new_array = keep_indices(my_array, rows_to_keep, cols_to_keep)
+    clone_cp_feats_cy5 = zroots[experiment].get_cell_properties(field_of_view, well, "CY5")
+    clone_cp_feats_cy5_mean = np.nanmean(zscore(clone_cp_feats_cy5), axis=0)
 
 
-def view_clones(zarr_roots,exp_names,clone_numbers=[0],image_number=0):
+    # --- Images ---
 
-    fig,ax=plt.subplots(1,len(clone_numbers),figsize=(int(len(clone_numbers)*10),10))
+    img1 = zroots[experiment].get_label_image(field_of_view, well, "BF")
+    img2 = zroots[experiment].get_raw_intensities(field_of_view, well, "BF")
+    img3 = zroots[experiment].get_processed_intensities(field_of_view, well, "BF")
 
-    for e in range(len(clone_numbers)):
+    img4 = zroots[experiment].get_label_image(field_of_view, well, "CY5")
+    img5 = zroots[experiment].get_raw_intensities(field_of_view, well, "CY5")
+    img6 = zroots[experiment].get_processed_intensities(field_of_view, well, "CY5")
 
+    ims=[img1,img2,img3,img4,img5,img6]
 
-        mask_arr_bf=copy.deepcopy(zarr_roots[e].get_mask_image(image_number, clone_numbers[e], "BF"))
-        new_mask_arr_bf = np.where(mask_arr_bf != 0, 1, 0)
-    
-        mask_arr_cy5=copy.deepcopy(zarr_roots[e].get_mask_image(image_number, clone_numbers[e], "CY5"))
-        new_mask_arr_cy5 = np.where(mask_arr_cy5 != 0, 1, 0)
+    genroot='plots/exp_' + str(experiment) + '_strain_' + str(well) + '_fov_' + str(field_of_view)
 
-        if len(clone_numbers) == 1:
-            ax.imshow(np.multiply(zarr_roots[e].get_processed_intensities(image_number, clone_numbers[e], "BF"),new_mask_arr_bf),cmap='Greys')
-            ax.imshow(np.multiply(zarr_roots[e].get_processed_intensities(image_number, clone_numbers[e], "CY5"),new_mask_arr_cy5),cmap='Greens',vmin=0,vmax=1,alpha=.8)
-            ax.set_xticks([]) 
-            ax.set_yticks([])
+    bfroot='plots/exp_' + str(experiment) + '_strain_' + str(well) + '_fov_' + str(field_of_view) + '_BF_'
+    cy5root='plots/exp_' + str(experiment) + '_strain_' + str(well) + '_fov_' + str(field_of_view) + '_CY5_'
+    plt_names_roots=[bfroot+'label_image',
+                     bfroot+'raw_intensities',
+                     bfroot+'processed_intensities',
+                     cy5root+'label_image',
+                     cy5root+'raw_intensities',
+                     cy5root+'processed_intensities']
 
+        
+    for i in range(len(ims)):
+        fig, ax = plt.subplots(figsize=(f_size[0], f_size[1]))
 
-        if len(clone_numbers) > 1:
-            ax[e].imshow(np.multiply(zarr_roots[e].get_processed_intensities(image_number, clone_numbers[e], "BF"),new_mask_arr_bf),cmap='cubehelix',alpha=1)
-            ax[e].imshow(np.multiply(zarr_roots[e].get_processed_intensities(image_number, clone_numbers[e], "CY5"),new_mask_arr_cy5),cmap='Greens',vmin=0,vmax=1,alpha=.8)
-            ax[e].set_xticks([]) 
-            ax[e].set_yticks([])
-            ax[e].set_title(exp_names[e] + ': Clone '  + str(clone_numbers[e]), fontsize=18)
+        if i == 0:
 
+            ax.imshow(ims[i])
 
-    #axes[0, e].set_title(col_titles[e], fontsize=18)
+            if show_labels:
             
+                try:
+                    outlines_bf=zroots[experiment].get_cell_outlines(field_of_view, well, "BF")
+                    for labels in range(len(outlines_bf)):
+                        ax.text(x=outlines_bf[labels][0][0],
+                                    y=outlines_bf[labels][0][1],
+                                    s=str(labels),
+                                    size=marker_size_1,
+                                    c=marker_color_bf)
+                except:
+                    pass
+
+            ax.axis('off')
+
+            fig.savefig(
+                plt_names_roots[i] + '.png',
+                bbox_inches='tight',
+                pad_inches=0
+            )
+            fig.savefig(
+                plt_names_roots[i] + '.pdf',
+                bbox_inches='tight',
+                pad_inches=0
+            )
+            fig.savefig(
+                plt_names_roots[i] + '.svg',
+                bbox_inches='tight',
+                pad_inches=0
+            )
+
+        if i == 3:
+
+            ax.imshow(ims[i])
+
+            if show_labels:
+
+                try:
+                    outlines_cy5=zroots[experiment].get_cell_outlines(field_of_view, well, "CY5")
+                    for labels in range(len(outlines_cy5)):
+                        ax.text(x=outlines_cy5[labels][0][0],
+                                    y=outlines_cy5[labels][0][1],
+                                    s=str(labels),
+                                    size=marker_size_1,
+                                    c=marker_color_cy)
+                except:
+                    pass
+
+            ax.axis('off')
+
+            fig.savefig(
+                plt_names_roots[i] + '.png',
+                bbox_inches='tight',
+                pad_inches=0
+            )
+            fig.savefig(
+                plt_names_roots[i] + '.pdf',
+                bbox_inches='tight',
+                pad_inches=0
+            )
+            fig.savefig(
+                plt_names_roots[i] + '.svg',
+                bbox_inches='tight',
+                pad_inches=0
+            )
+
+        if i not in [0,3]:
+
+            ax.imshow(ims[i])
+            ax.axis('off')
+
+            fig.savefig(
+                plt_names_roots[i] + '.png',
+                bbox_inches='tight',
+                pad_inches=0
+            )
+            fig.savefig(
+                plt_names_roots[i] + '.pdf',
+                bbox_inches='tight',
+                pad_inches=0
+            )
+            fig.savefig(
+                plt_names_roots[i] + '.svg',
+                bbox_inches='tight',
+                pad_inches=0
+            )
+
+        plt.show()
+        plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(f_size_2[0], f_size_2[1]))
+
+
+    label_arr_bf=copy.deepcopy(zroots[experiment].get_label_image(field_of_view, well, "BF"))
+    mask_arr_bf = np.where(label_arr_bf != 0, 1, 0)
+
+    label_arr_cy5=copy.deepcopy(zroots[experiment].get_label_image(field_of_view, well, "CY5"))
+    mask_arr_cy5 = np.where(label_arr_cy5 != 0, 1, 0)
+
+
+    ax.imshow(np.multiply(zroots[experiment].get_processed_intensities(field_of_view, well, "BF"),mask_arr_bf),cmap="apc:sunset",alpha=.8)
+    ax.imshow(np.multiply(zroots[experiment].get_processed_intensities(field_of_view, well, "CY5"),mask_arr_cy5),cmap="apc:sages_r",vmin=0,vmax=1,alpha=.8)
+    ax.set_xticks([]) 
+    ax.set_yticks([])
+
+    if show_labels:
+        try:
+            outlines_cy5=zroots[experiment].get_cell_outlines(field_of_view, well, "CY5")
+            for labels in range(len(outlines_cy5)):
+                ax.text(x=outlines_cy5[labels][0][0],
+                            y=outlines_cy5[labels][0][1],
+                            s=str(labels),
+                            size=marker_size_2,
+                            c=marker_color_cy)
+        except:
+            pass
+
+
+
+        try:
+            outlines_bf=zroots[experiment].get_cell_outlines(field_of_view, well, "BF")
+            for labels in range(len(outlines_bf)):
+                ax.text(x=outlines_bf[labels][0][0],
+                            y=outlines_bf[labels][0][1],
+                            s=str(labels),
+                            size=marker_size_2,
+                            c=marker_color_bf)
+        except:
+            pass
+
+    fig.savefig(
+    genroot + 'merged_image' + '.png',
+    bbox_inches='tight',
+    pad_inches=0)
+    fig.savefig(
+    genroot + 'merged_image' + '.pdf',
+    bbox_inches='tight',
+    pad_inches=0)
+    fig.savefig(
+    genroot + 'merged_image' + '.svg',
+    bbox_inches='tight',
+    pad_inches=0)
+
+    plt.show()
+    plt.close(fig)
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def plot_single_clone_features(
+    zroots,
+    experiment=0,
+    field_of_view=0,
+    well=0,
+    channel="BF",
+    figsize=(8, 6),
+    title=None,
+    show_title=True,
+    include_pixel_intensity=True,
+    zscore_features=False,
+    color=apc.aster,
+    rotation=45,
+    orientation="vertical",
+    show_xticklabels=True,
+    ylabel=None,
+    axis_color="black",
+    font_family=None,
+    font_size=10,
+    title_size=None,
+    exclude_features=None,
+    save=False,
+    figtitle=None,
+):
+    """
+    Plot mean feature values for a single clone as a bar plot.
+
+    Parameters
+    ----------
+    exclude_features : list or None
+        Feature names to exclude, e.g.
+        ["moments_hu-4", "moments_hu-5", "moments_hu-6"]
+    """
+
+    if exclude_features is None:
+        exclude_features = []
+
+    # --- Load cell properties ---
+    props = zroots[experiment].get_cell_properties(field_of_view, well, channel)
+    if props is None or len(props) == 0:
+        raise ValueError(
+            f"No cell properties found for experiment={experiment}, "
+            f"field_of_view={field_of_view}, well={well}, channel={channel}"
+        )
+
+    # rename first feature if needed
+    feature_names = props.columns.to_list()
+    if len(feature_names) > 0 and feature_names[0] == "label":
+        feature_names[0] = "count"
+        props = props.copy()
+        props.columns = feature_names
+
+    # --- Exclude requested features ---
+    keep_features = [f for f in props.columns if f not in exclude_features]
+    props = props[keep_features]
+
+    # --- Compute mean feature values ---
+    props_np = props.astype("float32").to_numpy()
+
+    if zscore_features:
+        props_np = zscore(props_np, axis=0, nan_policy="omit")
+
+    feature_means = np.nanmean(props_np, axis=0)
+
+    feature_df = pd.DataFrame({
+        "feature": props.columns.tolist(),
+        "value": feature_means
+    })
+
+    # --- Pixel intensity ---
+    if include_pixel_intensity:
+        try:
+            label_arr = copy.deepcopy(
+                zroots[experiment].get_label_image(field_of_view, well, channel)
+            )
+            mask_arr = np.where(label_arr != 0, 1, 0)
+            proc_img = zroots[experiment].get_processed_intensities(
+                field_of_view, well, channel
+            )
+
+            if np.sum(mask_arr) > 0:
+                pixel_vals = proc_img[mask_arr.astype(bool)]
+                if zscore_features:
+                    pixel_vals = zscore(pixel_vals, nan_policy="omit")
+                mean_pixel_intensity = np.nanmean(pixel_vals)
+            else:
+                mean_pixel_intensity = np.nan
+
+            feature_df = pd.concat(
+                [
+                    feature_df,
+                    pd.DataFrame(
+                        {"feature": ["pixel_intensity"], "value": [mean_pixel_intensity]}
+                    ),
+                ],
+                ignore_index=True,
+            )
+        except Exception as e:
+            print(f"Warning: could not compute pixel intensity: {e}")
+
+    # --- Plot ---
+    fig, ax = plt.subplots(figsize=figsize)
+    x = np.arange(len(feature_df))
+
+    if orientation == "vertical":
+        ax.bar(x, feature_df["value"], color=color)
+        ax.set_xticks(x)
+
+        if show_xticklabels:
+            ax.set_xticklabels(feature_df["feature"], rotation=rotation, ha="right")
+        else:
+            ax.set_xticklabels([])
+
+        if ylabel is not None:
+            ax.set_ylabel(ylabel)
+        else:
+            ax.set_ylabel(
+                "Mean z-scored feature value" if zscore_features else "Mean feature value"
+            )
+
+    elif orientation == "horizontal":
+        ax.barh(x, feature_df["value"], color=color)
+        ax.set_yticks(x)
+
+        if show_xticklabels:
+            ax.set_yticklabels(feature_df["feature"])
+        else:
+            ax.set_yticklabels([])
+
+        if ylabel is not None:
+            ax.set_xlabel(ylabel)
+        else:
+            ax.set_xlabel(
+                "Mean z-scored feature value" if zscore_features else "Mean feature value"
+            )
+
+    else:
+        raise ValueError("orientation must be 'vertical' or 'horizontal'")
+
+    # --- Axis styling ---
+    for spine in ax.spines.values():
+        spine.set_color(axis_color)
+
+    ax.tick_params(axis='x', colors=axis_color)
+    ax.tick_params(axis='y', colors=axis_color)
+
+    # --- Font styling ---
+    if font_family is not None:
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontfamily(font_family)
+            label.set_fontsize(font_size)
+
+        ax.xaxis.label.set_fontfamily(font_family)
+        ax.yaxis.label.set_fontfamily(font_family)
+        ax.xaxis.label.set_fontsize(font_size)
+        ax.yaxis.label.set_fontsize(font_size)
+    else:
+        ax.tick_params(labelsize=font_size)
+        ax.xaxis.label.set_size(font_size)
+        ax.yaxis.label.set_size(font_size)
+
+    # --- Title ---
+    if show_title:
+        if title is None:
+            title = f"Exp {experiment} | FoV {field_of_view} | Clone {well} | {channel}"
+
+        if font_family is not None:
+            ax.set_title(title, fontfamily=font_family, fontsize=title_size or font_size)
+        else:
+            ax.set_title(title, fontsize=title_size or font_size)
+
+    plt.tight_layout()
     plt.show()
 
+    # --- Save ---
+    if save:
+        if figtitle is None:
+            figtitle = (
+                f"single_clone_features_exp_{experiment}"
+                f"_fov_{field_of_view}"
+                f"_clone_{well}"
+                f"_{channel}"
+            )
 
-def pca_on_np_array(nparray):
-    '''rows are instances , columns are dimensions(variables)'''
-    #center data
-    mean_value = np.mean(nparray, axis = 0) 
-    nparray -= mean_value 
-    #calculate covariance matrix
-    cov = np.cov(nparray, rowvar = False)
-    #get eigenvectors and eigenvalues of the covariance matrix
-    evals , evecs = LA.eigh(cov)
+        fig.savefig("plots/"+figtitle + ".png", bbox_inches="tight")
+        fig.savefig("plots/"+figtitle + ".pdf", bbox_inches="tight")
+        fig.savefig("plots/"+figtitle + ".svg", bbox_inches="tight")
 
-    #formatting and SORT by eigenvalues (aka sort by how much variance each eigen vector explains)
-    idx = np.argsort(evals)[::-1]
-    evecs = evecs[:,idx]
-    evals = evals[idx]
+    return fig, ax, feature_df
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def plot_feature_cv_across_conditions(
+    zroots,
+    channel="BF",
+    n_wells=96,
+    n_fovs=9,
+    dead_ids=None,
+    include_pixel_intensity=True,
+    zscore_features=False,
+    figsize=(10, 6),
+    title=None,
+    show_title=True,
+    show_xticklabels=True,
+    ylabel=None,
+    orientation="vertical",
+    rotation=45,
+    bar_color=apc.aster,
+    dot_colors=None,
+    dot_size=40,
+    dot_alpha=1.0,
+    dot_edgecolor="none",
+    axis_color="black",
+    font_family=None,
+    font_size=10,
+    title_size=None,
+    log_transform=None,   # None, "log10", or "log2"
+    exclude_features=None,
+    save=False,
+    figtitle=None,
+):
+    """
+    Plot the coefficient of variation (CV = std / mean) for each feature.
 
-    #this is your data represented as PCS 
-    nparray_represented_as_pcs = np.dot(nparray, evecs)
-    
-    return nparray_represented_as_pcs,evecs,evals,mean_value
+    CV is always converted to absolute value before averaging or plotting.
 
+    Parameters
+    ----------
+    exclude_features : list or None
+        Feature names to exclude, e.g.
+        ["moments_hu-4", "moments_hu-5", "moments_hu-6"]
+    """
 
-def represent_data_with_n_pcs (pc_scores,eigenvectors,npcs,mean_value):
-    
-    n_pc_representation=[]
-    
-    for n in pc_scores:
-        
-        x=n[0:npcs]
-        
-        y=np.dot(x, eigenvectors.T[0:npcs]) + mean_value
- 
-        n_pc_representation.append(y)
-        
-    return np.array(n_pc_representation)
+    if dead_ids is None:
+        dead_ids = []
 
+    if exclude_features is None:
+        exclude_features = []
 
-def normalize_array(arr):
-    min_val = np.min(arr)
-    max_val = np.max(arr)
-    # Handle the case where all elements are the same to avoid division by zero
-    if max_val == min_val:
-        return np.zeros_like(arr, dtype=float) 
-    normalized_arr = (arr - min_val) / (max_val - min_val)
-    return normalized_arr
+    if dot_colors is None:
+        dot_colors = [apc.vital, apc.wish, apc.dress, apc.lapis, apc.aster, apc.candy]
 
+    if len(dot_colors) < len(zroots):
+        raise ValueError(
+            f"dot_colors has length {len(dot_colors)} but there are {len(zroots)} conditions."
+        )
 
+    # ----------------------------
+    # CV helper (always positive)
+    # ----------------------------
+    def _cv(arr):
+        arr = np.asarray(arr, dtype=float)
+        arr = arr[np.isfinite(arr)]
+        if len(arr) < 2:
+            return np.nan
+        mean_val = np.nanmean(arr)
+        std_val = np.nanstd(arr, ddof=1)
+        if np.isclose(mean_val, 0):
+            return np.nan
+        return abs(std_val / mean_val)
+
+    # ----------------------------
+    # Feature names
+    # ----------------------------
+    reference_props = zroots[0].get_cell_properties(0, 0, channel)
+    if reference_props is None or len(reference_props) == 0:
+        raise ValueError("Could not determine feature names")
+
+    feature_names = reference_props.columns.tolist()
+    if len(feature_names) > 0 and feature_names[0] == "label":
+        feature_names[0] = "count"
+
+    feature_names = [f for f in feature_names if f not in exclude_features]
+
+    n_conditions = len(zroots)
+
+    feature_values_by_condition = {
+        fname: [[] for _ in range(n_conditions)]
+        for fname in feature_names
+    }
+
+    if include_pixel_intensity:
+        feature_values_by_condition["pixel_intensity"] = [[] for _ in range(n_conditions)]
+
+    # ----------------------------
+    # Collect values
+    # ----------------------------
+    for cond_idx, z in enumerate(zroots):
+        for well in range(n_wells):
+            if well in dead_ids:
+                continue
+
+            per_fov_feature_means = []
+            per_fov_pixel_means = []
+
+            for fov in range(n_fovs):
+                props = z.get_cell_properties(fov, well, channel)
+
+                if props is None or len(props) == 0:
+                    continue
+
+                current_names = props.columns.tolist()
+                if len(current_names) > 0 and current_names[0] == "label":
+                    current_names[0] = "count"
+                    props = props.copy()
+                    props.columns = current_names
+
+                props = props[feature_names]
+
+                props_np = props.astype("float32").to_numpy()
+
+                if zscore_features:
+                    props_np = zscore(props_np, axis=0, nan_policy="omit")
+
+                mean_vals = np.nanmean(props_np, axis=0)
+                per_fov_feature_means.append(mean_vals)
+
+                if include_pixel_intensity:
+                    try:
+                        label_arr = z.get_label_image(fov, well, channel)
+                        mask = label_arr != 0
+                        img = z.get_processed_intensities(fov, well, channel)
+
+                        vals = img[mask]
+                        if len(vals) > 0:
+                            if zscore_features:
+                                vals = zscore(vals, nan_policy="omit")
+                            per_fov_pixel_means.append(np.nanmean(vals))
+                    except:
+                        pass
+
+            if len(per_fov_feature_means) == 0:
+                continue
+
+            well_vals = np.nanmean(per_fov_feature_means, axis=0)
+
+            for i, fname in enumerate(feature_names):
+                feature_values_by_condition[fname][cond_idx].append(well_vals[i])
+
+            if include_pixel_intensity and len(per_fov_pixel_means) > 0:
+                feature_values_by_condition["pixel_intensity"][cond_idx].append(
+                    np.nanmean(per_fov_pixel_means)
+                )
+
+    # ----------------------------
+    # Compute CV
+    # ----------------------------
+    rows = []
+
+    for feature, groups in feature_values_by_condition.items():
+        cv_vals = np.array([_cv(g) for g in groups], dtype=float)
+        mean_cv = np.nanmean(cv_vals)
+
+        if log_transform is not None:
+            eps = 1e-8
+            if log_transform == "log10":
+                cv_vals = np.log10(cv_vals + eps)
+                mean_cv = np.log10(mean_cv + eps)
+            elif log_transform == "log2":
+                cv_vals = np.log2(cv_vals + eps)
+                mean_cv = np.log2(mean_cv + eps)
+            else:
+                raise ValueError("log_transform must be None, 'log10', or 'log2'")
+
+        row = {"feature": feature, "mean_cv": mean_cv}
+
+        for i, val in enumerate(cv_vals):
+            row[f"cv_condition_{i}"] = val
+
+        rows.append(row)
+
+    results_df = pd.DataFrame(rows)
+
+    # ----------------------------
+    # Plot
+    # ----------------------------
+    fig, ax = plt.subplots(figsize=figsize)
+    pos = np.arange(len(results_df))
+    labels = results_df["feature"].tolist()
+
+    if orientation == "vertical":
+        ax.bar(pos, results_df["mean_cv"], color=bar_color)
+
+        for i in range(n_conditions):
+            ax.scatter(
+                pos,
+                results_df[f"cv_condition_{i}"],
+                color=dot_colors[i],
+                s=dot_size,
+                alpha=dot_alpha,
+                edgecolors=dot_edgecolor,
+                zorder=3,
+            )
+
+        ax.set_xticks(pos)
+        if show_xticklabels:
+            ax.set_xticklabels(labels, rotation=rotation, ha="right", rotation_mode="anchor")
+        else:
+            ax.set_xticklabels([""] * len(labels))
+
+        ax.set_xlim(-0.6, len(labels) - 0.4)
+
+        if ylabel is not None:
+            ax.set_ylabel(ylabel)
+        else:
+            if log_transform == "log10":
+                ax.set_ylabel("log10(CV)")
+            elif log_transform == "log2":
+                ax.set_ylabel("log2(CV)")
+            else:
+                ax.set_ylabel("Mean CV")
+
+    else:
+        ax.barh(pos, results_df["mean_cv"], color=bar_color)
+
+        for i in range(n_conditions):
+            ax.scatter(
+                results_df[f"cv_condition_{i}"],
+                pos,
+                color=dot_colors[i],
+                s=dot_size,
+                alpha=dot_alpha,
+                edgecolors=dot_edgecolor,
+                zorder=3,
+            )
+
+        ax.set_yticks(pos)
+        if show_xticklabels:
+            ax.set_yticklabels(labels)
+        else:
+            ax.set_yticklabels([""] * len(labels))
+
+        ax.set_ylim(-0.6, len(labels) - 0.4)
+
+        if ylabel is not None:
+            ax.set_xlabel(ylabel)
+        else:
+            if log_transform == "log10":
+                ax.set_xlabel("log10(CV)")
+            elif log_transform == "log2":
+                ax.set_xlabel("log2(CV)")
+            else:
+                ax.set_xlabel("Mean CV")
+
+    # styling
+    for spine in ax.spines.values():
+        spine.set_color(axis_color)
+
+    ax.tick_params(axis="x", colors=axis_color)
+    ax.tick_params(axis="y", colors=axis_color)
+
+    if font_family is not None:
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontfamily(font_family)
+            label.set_fontsize(font_size)
+
+        ax.xaxis.label.set_fontfamily(font_family)
+        ax.yaxis.label.set_fontfamily(font_family)
+        ax.xaxis.label.set_fontsize(font_size)
+        ax.yaxis.label.set_fontsize(font_size)
+    else:
+        ax.tick_params(labelsize=font_size)
+        ax.xaxis.label.set_size(font_size)
+        ax.yaxis.label.set_size(font_size)
+
+    if show_title:
+        if title is None:
+            title = f"Feature CV across conditions | {channel}"
+        if font_family is not None:
+            ax.set_title(title, fontfamily=font_family, fontsize=title_size or font_size)
+        else:
+            ax.set_title(title, fontsize=title_size or font_size)
+
+    if orientation == "vertical" and show_xticklabels:
+        plt.subplots_adjust(bottom=0.3)
+    else:
+        plt.tight_layout()
+
+    plt.show()
+
+    if save:
+        if figtitle is None:
+            figtitle = f"feature_cv_{channel}"
+        fig.savefig("plots/"+figtitle + ".png", bbox_inches="tight")
+        fig.savefig("plots/"+figtitle + ".pdf", bbox_inches="tight")
+        fig.savefig("plots/"+figtitle + ".svg", bbox_inches="tight")
+
+    return fig, ax, results_df
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 def nan_cosine_distance(u, v):
     """
     Calculate the cosine distance between two vectors, ignoring NaNs in either vector.
@@ -404,689 +900,59 @@ def nan_cosine_distance(u, v):
     distance = cosine(u_clean, v_clean)
     
     return distance
-
-
-def train_and_predict(
-    data,
-    train_conditions,
-    test_condition,
-    model_type="ridge",
-    alpha=100,
-    n_pls_components=2
-):
-    """
-    data: dict[str, np.ndarray]  (96, 22)
-    train_conditions: list[str]
-    test_condition: str
-    """
-
-    # --- Build training matrix ---
-    X_train = np.hstack([data[c] for c in train_conditions])
-    y_train = data[test_condition]
-
-    # --- Choose model ---
-    if model_type == "ridge":
-        model = Ridge(alpha=alpha)
-    elif model_type == "pls":
-        model = PLSRegression(n_components=n_pls_components)
-    else:
-        raise ValueError("Unknown model_type")
-
-    # --- Scale + fit ---
-    pipeline = Pipeline([
-        ("scaler", StandardScaler()),
-        ("model", model)
-    ])
-
-    pipeline.fit(X_train, y_train)
-
-    # --- Predict ---
-    y_pred = pipeline.predict(X_train)
-
-    # --- Metrics ---
-    metrics = {
-        "r2_overall": r2_score(y_train, y_pred),
-        "rmse_overall": np.sqrt(mean_squared_error(y_train, y_pred)),
-        "r2_per_feature": [
-            r2_score(y_train[:, i], y_pred[:, i])
-            for i in range(y_train.shape[1])
-        ]
-    }
-
-    return y_pred, metrics, pipeline
-
-
-#hold out strains for testing
-
-def cross_validated_performance(
-    data,
-    train_conditions,
-    test_condition,
-    model_type="ridge",
-    alpha=1,
-    n_splits=12
-):
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-
-    y_true = data[test_condition]
-    X_full = np.hstack([data[c] for c in train_conditions])
-
-    r2_scores = []
-
-    for train_idx, test_idx in kf.split(X_full):
-        X_train, X_test = X_full[train_idx], X_full[test_idx]
-        y_train, y_test = y_true[train_idx], y_true[test_idx]
-
-        if model_type == "ridge":
-            model = Ridge(alpha=alpha)
-        else:
-            model = PLSRegression(n_components=3)
-
-        pipeline = Pipeline([
-            ("scaler", StandardScaler()),
-            ("model", model)
-        ])
-
-        pipeline.fit(X_train, y_train)
-        y_pred = pipeline.predict(X_test)
-
-        r2_scores.append(r2_score(y_test, y_pred))
-
-    return r2_scores, y_test, y_pred
-
-
-#hold out strains for testing
-
-def cross_validated_performance(
-    data,
-    train_conditions,
-    test_condition,
-    model_type="ridge",
-    alpha=1,
-    n_splits=12
-):
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-
-    y_true = data[test_condition]
-    X_full = np.hstack([data[c] for c in train_conditions])
-
-    r2_scores = []
-
-    for train_idx, test_idx in kf.split(X_full):
-        X_train, X_test = X_full[train_idx], X_full[test_idx]
-        y_train, y_test = y_true[train_idx], y_true[test_idx]
-
-        if model_type == "ridge":
-            model = Ridge(alpha=alpha)
-        else:
-            model = PLSRegression(n_components=3)
-
-        pipeline = Pipeline([
-            ("scaler", StandardScaler()),
-            ("model", model)
-        ])
-
-        pipeline.fit(X_train, y_train)
-        y_pred = pipeline.predict(X_test)
-
-        r2_scores.append(r2_score(y_test, y_pred))
-
-    return r2_scores, y_test, y_pred
-
-
-def evaluate_all_condition_holdouts(
-    data,
-    model_type="ridge",
-    alpha=1.0,
-    n_splits=5,
-    random_state=42
-):
-    """
-    data: dict[str, np.ndarray] of shape (n_strains, n_features)
-    """
-
-    conditions = list(data.keys())
-    n_conditions = len(conditions)
-    n_features = data[conditions[0]].shape[1]
-
-    overall_r2 = np.zeros(n_conditions)
-    rmse = np.zeros(n_conditions)
-    r2_per_feature = np.zeros((n_conditions, n_features))
-
-    for c_idx, holdout_condition in enumerate(conditions):
-
-        train_conditions = [c for c in conditions if c != holdout_condition]
-
-        # Build full design matrix
-        X_full = np.hstack([data[c] for c in train_conditions])
-        y_full = data[holdout_condition]
-
-        kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-
-        y_true_all = []
-        y_pred_all = []
-
-        for train_idx, test_idx in kf.split(X_full):
-
-            X_train, X_test = X_full[train_idx], X_full[test_idx]
-            y_train, y_test = y_full[train_idx], y_full[test_idx]
-
-            if model_type == "ridge":
-                model = Ridge(alpha=alpha)
-            else:
-                raise ValueError("Unsupported model")
-
-            pipeline = Pipeline([
-                ("scaler", StandardScaler()),
-                ("model", model)
-            ])
-
-            pipeline.fit(X_train, y_train)
-            y_pred = pipeline.predict(X_test)
-
-            y_true_all.append(y_test)
-            y_pred_all.append(y_pred)
-
-        # Concatenate across folds
-        y_true_all = np.vstack(y_true_all)
-        y_pred_all = np.vstack(y_pred_all)
-
-        # Metrics
-        overall_r2[c_idx] = r2_score(y_true_all, y_pred_all)
-        rmse[c_idx] = np.sqrt(mean_squared_error(y_true_all, y_pred_all))
-
-        for f in range(n_features):
-            r2_per_feature[c_idx, f] = r2_score(
-                y_true_all[:, f],
-                y_pred_all[:, f]
-            )
-
-    return {
-        "conditions": conditions,
-        "overall_r2": overall_r2,
-        "rmse": rmse,
-        "r2_per_feature": r2_per_feature
-    }
-
-
-
-
-def predict_new(pipeline, new_data_by_condition, train_conditions):
-    """
-    new_data_by_condition: dict[str, np.ndarray] where each array is (n_new, 44)
-    train_conditions: list[str] in the same order used during training
-    """
-    X_new = np.hstack([new_data_by_condition[c] for c in train_conditions])
-    y_new_pred = pipeline.predict(X_new)  # (n_new, 22)
-    return y_new_pred
-
-def _cv_predict_metrics(X, y, alpha=1.0, n_splits=5, random_state=42):
-    """
-    Strain-level KFold CV: each strain is predicted out-of-sample exactly once.
-    Returns:
-      - overall R² (variance-weighted across outputs)
-      - overall RMSE
-      - per-feature R² (length n_features)
-    """
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-
-    y_true_all, y_pred_all = [], []
-
-    for train_idx, test_idx in kf.split(X):
-        X_train, X_test = X[train_idx], X[test_idx]
-        y_train, y_test = y[train_idx], y[test_idx]
-
-        model = Pipeline([
-            ("scaler", StandardScaler()),
-            ("ridge", Ridge(alpha=alpha))
-        ])
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-
-        y_true_all.append(y_test)
-        y_pred_all.append(y_pred)
-
-    y_true_all = np.vstack(y_true_all)
-    y_pred_all = np.vstack(y_pred_all)
-
-    r2_overall = r2_score(y_true_all, y_pred_all, multioutput="variance_weighted")
-    rmse_overall = np.sqrt(mean_squared_error(y_true_all, y_pred_all))
-
-    r2_per_feature = np.array([
-        r2_score(y_true_all[:, j], y_pred_all[:, j])
-        for j in range(y.shape[1])
-    ])
-
-    return r2_overall, rmse_overall, r2_per_feature
-
-
-def condition_holdout_permutation_test_featurewise(
-    data,
-    alpha=1.0,
-    n_splits=5,
-    n_permutations=500,
-    random_state=42
-):
-    """
-    For each holdout condition:
-      - X = concat(features from all other conditions)
-      - y = features for holdout condition
-      - Compute real CV metrics
-      - Permute y across strains, recompute metrics, and compute p-values:
-          * p overall R²
-          * p overall RMSE
-          * p per-feature R² (shape: n_conditions x n_features)
-
-    Returns a dict with:
-      real metrics, and p-values for overall and per-feature R².
-    """
-    rng = np.random.default_rng(random_state)
-
-    conditions = list(data.keys())
-    n_conditions = len(conditions)
-    n_strains, n_features = next(iter(data.values())).shape
-
-    # Real metrics
-    real_r2 = np.zeros(n_conditions)
-    real_rmse = np.zeros(n_conditions)
-    real_r2_feat = np.zeros((n_conditions, n_features))
-
-    # P-values
-    p_r2 = np.zeros(n_conditions)
-    p_rmse = np.zeros(n_conditions)
-    p_r2_feat = np.zeros((n_conditions, n_features))
-
-    # We’ll compute p-values by counting how often null >= real (for R²)
-    # and null <= real (for RMSE)
-    for ci, holdout in enumerate(conditions):
-        train_conditions = [c for c in conditions if c != holdout]
-
-        X = np.hstack([data[c] for c in train_conditions])  # (n_strains, 22*(C-1))
-        y = data[holdout]                                   # (n_strains, 22)
-
-        # ---- Real ----
-        r2o_real, rmse_real, r2f_real = _cv_predict_metrics(
-            X, y, alpha=alpha, n_splits=n_splits, random_state=random_state
-        )
-        real_r2[ci] = r2o_real
-        real_rmse[ci] = rmse_real
-        real_r2_feat[ci] = r2f_real
-
-        # ---- Null counts (memory-efficient) ----
-        count_r2_overall = 0
-        count_rmse_overall = 0
-        count_r2_feat = np.zeros(n_features, dtype=int)
-
-        for _ in range(n_permutations):
-            perm = rng.permutation(n_strains)
-            y_perm = y[perm]
-
-            r2o_null, rmse_null, r2f_null = _cv_predict_metrics(
-                X, y_perm, alpha=alpha, n_splits=n_splits, random_state=random_state
-            )
-
-            # R²: bigger is better → count null >= real
-            if r2o_null >= r2o_real:
-                count_r2_overall += 1
-
-            # RMSE: smaller is better → count null <= real
-            if rmse_null <= rmse_real:
-                count_rmse_overall += 1
-
-            count_r2_feat += (r2f_null >= r2f_real)
-
-        # Unbiased permutation p-values with +1 correction
-        p_r2[ci] = (1 + count_r2_overall) / (n_permutations + 1)
-        p_rmse[ci] = (1 + count_rmse_overall) / (n_permutations + 1)
-        p_r2_feat[ci] = (1 + count_r2_feat) / (n_permutations + 1)
-
-    return {
-        "conditions": conditions,
-        "real": {
-            "r2_overall": real_r2,
-            "rmse_overall": real_rmse,
-            "r2_per_feature": real_r2_feat
-        },
-        "p_values": {
-            "r2_overall": p_r2,
-            "rmse_overall": p_rmse,
-            "r2_per_feature": p_r2_feat
-        },
-        "settings": {
-            "alpha": alpha,
-            "n_splits": n_splits,
-            "n_permutations": n_permutations,
-            "random_state": random_state
-        }
-    }
-
-
-
-def _cv_predict_metrics(X, y, alpha=1.0, n_splits=5, random_state=42):
-    """
-    Strain-level KFold CV: each strain is predicted out-of-sample exactly once.
-    Returns:
-      - overall R² (variance-weighted across outputs)
-      - overall RMSE
-      - per-feature R² (length n_features)
-    """
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-
-    y_true_all, y_pred_all = [], []
-
-    for train_idx, test_idx in kf.split(X):
-        X_train, X_test = X[train_idx], X[test_idx]
-        y_train, y_test = y[train_idx], y[test_idx]
-
-        model = Pipeline([
-            ("scaler", StandardScaler()),
-            ("ridge", Ridge(alpha=alpha))
-        ])
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-
-        y_true_all.append(y_test)
-        y_pred_all.append(y_pred)
-
-    y_true_all = np.vstack(y_true_all)
-    y_pred_all = np.vstack(y_pred_all)
-
-    r2_overall = r2_score(y_true_all, y_pred_all, multioutput="variance_weighted")
-    rmse_overall = np.sqrt(mean_squared_error(y_true_all, y_pred_all))
-
-    r2_per_feature = np.array([
-        r2_score(y_true_all[:, j], y_pred_all[:, j])
-        for j in range(y.shape[1])
-    ])
-
-    return r2_overall, rmse_overall, r2_per_feature
-
-
-def condition_holdout_permutation_test_featurewise(
-    data,
-    alpha=1.0,
-    n_splits=5,
-    n_permutations=500,
-    random_state=42
-):
-    """
-    For each holdout condition:
-      - X = concat(features from all other conditions)
-      - y = features for holdout condition
-      - Compute real CV metrics
-      - Permute y across strains, recompute metrics, and compute p-values:
-          * p overall R²
-          * p overall RMSE
-          * p per-feature R² (shape: n_conditions x n_features)
-
-    Returns a dict with:
-      real metrics, and p-values for overall and per-feature R².
-    """
-    rng = np.random.default_rng(random_state)
-
-    conditions = list(data.keys())
-    n_conditions = len(conditions)
-    n_strains, n_features = next(iter(data.values())).shape
-
-    # Real metrics
-    real_r2 = np.zeros(n_conditions)
-    real_rmse = np.zeros(n_conditions)
-    real_r2_feat = np.zeros((n_conditions, n_features))
-
-    # P-values
-    p_r2 = np.zeros(n_conditions)
-    p_rmse = np.zeros(n_conditions)
-    p_r2_feat = np.zeros((n_conditions, n_features))
-
-    # We’ll compute p-values by counting how often null >= real (for R²)
-    # and null <= real (for RMSE)
-    for ci, holdout in enumerate(conditions):
-        train_conditions = [c for c in conditions if c != holdout]
-
-        X = np.hstack([data[c] for c in train_conditions])  # (n_strains, 22*(C-1))
-        y = data[holdout]                                   # (n_strains, 22)
-
-        # ---- Real ----
-        r2o_real, rmse_real, r2f_real = _cv_predict_metrics(
-            X, y, alpha=alpha, n_splits=n_splits, random_state=random_state
-        )
-        real_r2[ci] = r2o_real
-        real_rmse[ci] = rmse_real
-        real_r2_feat[ci] = r2f_real
-
-        # ---- Null counts (memory-efficient) ----
-        count_r2_overall = 0
-        count_rmse_overall = 0
-        count_r2_feat = np.zeros(n_features, dtype=int)
-
-        for _ in range(n_permutations):
-            perm = rng.permutation(n_strains)
-            y_perm = y[perm]
-
-            r2o_null, rmse_null, r2f_null = _cv_predict_metrics(
-                X, y_perm, alpha=alpha, n_splits=n_splits, random_state=random_state
-            )
-
-            # R²: bigger is better → count null >= real
-            if r2o_null >= r2o_real:
-                count_r2_overall += 1
-
-            # RMSE: smaller is better → count null <= real
-            if rmse_null <= rmse_real:
-                count_rmse_overall += 1
-
-            count_r2_feat += (r2f_null >= r2f_real)
-
-        # Unbiased permutation p-values with +1 correction
-        p_r2[ci] = (1 + count_r2_overall) / (n_permutations + 1)
-        p_rmse[ci] = (1 + count_rmse_overall) / (n_permutations + 1)
-        p_r2_feat[ci] = (1 + count_r2_feat) / (n_permutations + 1)
-
-    return {
-        "conditions": conditions,
-        "real": {
-            "r2_overall": real_r2,
-            "rmse_overall": real_rmse,
-            "r2_per_feature": real_r2_feat
-        },
-        "p_values": {
-            "r2_overall": p_r2,
-            "rmse_overall": p_rmse,
-            "r2_per_feature": p_r2_feat
-        },
-        "settings": {
-            "alpha": alpha,
-            "n_splits": n_splits,
-            "n_permutations": n_permutations,
-            "random_state": random_state
-        }
-    }
-
-
-
-def _cv_predict_metrics(X, y, alpha=10, n_splits=5, random_state=42):
-    """
-    Strain-level KFold CV producing out-of-sample predictions for every strain exactly once.
-    Returns overall R² (variance-weighted), RMSE, and per-feature R².
-    """
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-
-    y_true_all, y_pred_all = [], []
-
-    for train_idx, test_idx in kf.split(X):
-        X_train, X_test = X[train_idx], X[test_idx]
-        y_train, y_test = y[train_idx], y[test_idx]
-
-        model = Pipeline([
-            ("scaler", StandardScaler()),
-            ("ridge", Ridge(alpha=alpha))
-        ])
-
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-
-        y_true_all.append(y_test)
-        y_pred_all.append(y_pred)
-
-    y_true_all = np.vstack(y_true_all)
-    y_pred_all = np.vstack(y_pred_all)
-
-    # Recommended for multioutput: variance-weighted overall R²
-    r2_overall = r2_score(y_true_all, y_pred_all, multioutput="variance_weighted")
-    rmse_overall = np.sqrt(mean_squared_error(y_true_all, y_pred_all))
-
-    r2_per_feature = np.array([
-        r2_score(y_true_all[:, j], y_pred_all[:, j])
-        for j in range(y.shape[1])
-    ])
-
-    return r2_overall, rmse_overall, r2_per_feature
-
-
-def condition_holdout_permutation_test(
-    data,
-    alpha=10,
-    n_splits=5,
-    n_permutations=200,
-    random_state=42
-):
-    """
-    For each holdout condition:
-      - Train on all other conditions (inputs concatenated)
-      - Predict holdout condition (24-d target)
-      - Compute real CV metrics
-      - Compute null distribution by permuting y across strains
-    Returns a dict with real metrics, null distributions, and permutation p-values.
-    """
-    rng = np.random.default_rng(random_state)
-
-    conditions = list(data.keys())
-    n_conditions = len(conditions)
-    n_strains, n_features = next(iter(data.values())).shape
-
-    # Results containers
-    real_r2 = np.zeros(n_conditions)
-    real_rmse = np.zeros(n_conditions)
-    real_r2_feat = np.zeros((n_conditions, n_features))
-
-    null_r2 = np.zeros((n_conditions, n_permutations))
-    null_rmse = np.zeros((n_conditions, n_permutations))
-    # (optional) null per-feature is large; keep if you want
-    # null_r2_feat = np.zeros((n_conditions, n_permutations, n_features))
-
-    p_r2 = np.zeros(n_conditions)
-    p_rmse = np.zeros(n_conditions)
-
-    for ci, holdout in enumerate(conditions):
-        train_conditions = [c for c in conditions if c != holdout]
-
-        X = np.hstack([data[c] for c in train_conditions])     # (n_strains, 22*(C-1))
-        y = data[holdout]                                      # (n_strains, 22)
-
-        # --- Real CV ---
-        r2o, rmseo, r2f = _cv_predict_metrics(
-            X, y, alpha=alpha, n_splits=n_splits, random_state=random_state
-        )
-        real_r2[ci] = r2o
-        real_rmse[ci] = rmseo
-        real_r2_feat[ci] = r2f
-
-        # --- Null via permutation of y rows ---
-        for p in range(n_permutations):
-            perm = rng.permutation(n_strains)
-            y_perm = y[perm]
-
-            r2o_p, rmseo_p, _ = _cv_predict_metrics(
-                X, y_perm, alpha=alpha, n_splits=n_splits, random_state=random_state
-            )
-            null_r2[ci, p] = r2o_p
-            null_rmse[ci, p] = rmseo_p
-
-        # Permutation p-values (one-sided, “is real better than null?”)
-        # Add +1 to numerator/denominator for an unbiased finite-sample estimate.
-        p_r2[ci] = (1 + np.sum(null_r2[ci] >= real_r2[ci])) / (n_permutations + 1)
-        p_rmse[ci] = (1 + np.sum(null_rmse[ci] <= real_rmse[ci])) / (n_permutations + 1)
-
-    return {
-        "conditions": conditions,
-        "real": {
-            "r2_overall": real_r2,
-            "rmse_overall": real_rmse,
-            "r2_per_feature": real_r2_feat,
-        },
-        "null": {
-            "r2_overall": null_r2,
-            "rmse_overall": null_rmse,
-        },
-        "p_values": {
-            "r2_overall": p_r2,
-            "rmse_overall": p_rmse,
-        }
-    }
-
-
-
-
-
-
-
-def showcase_clone_across_experimental_conditions(zroots,clone,experiments,fov=0,experiment_labels=['1','2','3','4','5','6'],show_labels=False,fontsize=48):
-
-    figtitle='images_across_experiments_clone_' + str(clone) + '_fov' + str(fov)
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def cluster_by_feats(zroots,clone,exp,fov,channel,feat_id_range,fig_size=(10,10),figtitle='',col_map="apc:oranges_r"):
     
-    fig,ax=plt.subplots(2,3,layout='tight')
-    fig.set_size_inches(66,44)
-    ax=ax.flatten()
+    # cluster cells within an image by feature
+    moments_df=zroots[exp].get_cell_properties(fov, clone, "CY5").iloc[:, feat_id_range[0]:feat_id_range[1]]
+    
+    # zscore before taking cosing distance
+    z_moments=zscore(moments_df.to_numpy(), axis=0)
+    cosine_dist_of_moments=np.zeros((len(moments_df),len(moments_df)))
+    
+    for i in range(len(moments_df)):
+        for j in range(len(moments_df)):
+    
+            m1=z_moments[i]
+            m2=z_moments[j]
+            cosine_dist_of_moments[i,j]=nan_cosine_distance(m1,m2)
+
+    # convert square distance matrix to condensed form
+    condensed_dist = squareform(cosine_dist_of_moments, checks=False)
+
+    # build linkage from the PRECOMPUTED distances
+    #row_linkage = linkage(condensed_dist, method="average")
+    row_linkage = linkage(squareform(cosine_dist_of_moments, checks=False), method="average")
+
+
+    g=sns.clustermap(cosine_dist_of_moments,
+                     row_linkage=row_linkage,
+                     col_linkage=row_linkage,
+                     figsize=fig_size,
+                     yticklabels=False,
+                     xticklabels=False,
+                     cmap=col_map,
+                     cbar=False,
+                     cbar_pos=[1, 0.003, 0.01, .796])
     
     
-    for i, e in zip(range(len(experiments)),experiments):
+    plt.xticks(ticks=[], labels=[])
+    plt.yticks(ticks=[], labels=[])
     
     
-            label_arr_bf=copy.deepcopy(zroots[e].get_label_image(fov, clone, "BF"))
-            mask_arr_bf = np.where(label_arr_bf != 0, 1, 0)
-        
-            label_arr_cy5=copy.deepcopy(zroots[e].get_label_image(fov, clone, "CY5"))
-            mask_arr_cy5 = np.where(label_arr_cy5 != 0, 1, 0)
+    g.ax_row_dendrogram.set_visible(False)
+    g.ax_col_dendrogram.set_visible(False)
     
-            ax[i].imshow(np.multiply(zroots[e].get_processed_intensities(fov, clone, "BF"),mask_arr_bf),cmap="apc:sunset",alpha=.8)
-            ax[i].imshow(np.multiply(zroots[e].get_processed_intensities(fov, clone, "CY5"),mask_arr_cy5),cmap="apc:sages_r",vmin=0,vmax=1,alpha=.8)
-            ax[i].set_xticks([]) 
-            ax[i].set_yticks([])
-            ax[i].set_title(experiment_labels[e], fontsize=fontsize)
     
-            if show_labels:
-                try:
-                    outlines_cy5=zroots[e].get_cell_outlines(fov, clone, "CY5")
-                    for labels in range(len(outlines_cy5)):
-                        ax[i].text(x=outlines_cy5[labels][0][0],
-                                   y=outlines_cy5[labels][0][1],
-                                   s=str(labels),
-                                   size=8,
-                                   c='red')
-                except:
-                    pass
-        
-        
-        
-                try:
-                    outlines_bf=zroots[e].get_cell_outlines(fov, clone, "BF")
-                    for labels in range(len(outlines_bf)):
-                        ax[i].text(x=outlines_bf[labels][0][0],
-                                   y=outlines_bf[labels][0][1],
-                                   s=str(labels),
-                                   size=8,
-                                   c='yellow')
-                except:
-                    pass
+    plt.show()
+    
+    
+    g.savefig('plots/chlorella_pub_fig_' + figtitle + '.svg',bbox_inches='tight',pad_inches=0)
+    g.savefig('plots/chlorella_pub_fig_' + figtitle + '.pdf',bbox_inches='tight',pad_inches=0)
+    g.savefig('plots/chlorella_pub_fig_' + figtitle + '.png',bbox_inches='tight',pad_inches=0)
 
-    fig.savefig('chlorella_pub_fig_' + figtitle + '.svg',bbox_inches='tight')
-    fig.savefig('chlorella_pub_fig_' + figtitle + '.pdf',bbox_inches='tight')
-    fig.savefig('chlorella_pub_fig_' + figtitle + '.png',bbox_inches='tight')
-
-    
-    
-
-
+    return g,row_linkage
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 def boxplot_two_phase_temps_with_connections(
     zroots,
     dead_ids,
@@ -1277,186 +1143,540 @@ def boxplot_two_phase_temps_with_connections(
     plt.show()
 
     fig.tight_layout()
-    fig.savefig('chlorella_pub_fig_' + figtitle + '.svg',bbox_inches='tight')
-    fig.savefig('chlorella_pub_fig_' + figtitle + '.pdf',bbox_inches='tight')
-    fig.savefig('chlorella_pub_fig_' + figtitle + '.png',bbox_inches='tight')
+    fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.svg',bbox_inches='tight')
+    fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.pdf',bbox_inches='tight')
+    fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.png',bbox_inches='tight')
     return ax
-
-def showcase_clone_cp_features(
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def compute_dead_wells_and_ids(
     zroots,
-    experiment=0,
-    field_of_view=0,
-    well=0,
-    experiment_labels=['1','2','3','4','5'],
-    f_size=[50, 50],
-
-    # Outer layout: left block vs bar column
-    w_ratios=[3, 2],            # [left_block_width, bar_column_width]
-    outer_wspace=0.15,          # spacing between left block and bar column
-    outer_hspace=0.4,           # spacing between the two rows of the OUTER grid
-
-    # Image-block-only spacing (NEW)
-    img_wspace=0.02,
-    img_hspace=0.02,
-
-    img_titles=False,
-    bar_titles=False,
-    sup_title=True,
-    sup_title_params=[.36, .94, 24],
+    experiments_to_check,
+    n_fovs,
+    n_wells=96,
+    cell_count_cutoff=1,
+    channels=("BF", "CY5"),
 ):
-    figtitle = (
-        'cellpose_feature_outputs_experiment_' + str(experiment) +
-        '_fov' + str(field_of_view) +
-        '_clone' + str(well)
-    )
-    plot_title = experiment_labels[experiment] + ' FoV_' + str(field_of_view) + ' Clone_' + str(well)
+    """
+    Identify dead wells and corresponding row indices (dead_ids) across FoVs.
 
-    # --- Cellpose features ---
-    clone_cp_feats_bf = zroots[experiment].get_cell_properties(field_of_view, well, "BF")
-    clone_cp_feats_bf_mean = np.nanmean(zscore(clone_cp_feats_bf), axis=0)
-    cellpose_features = clone_cp_feats_bf.columns.to_list()
+    A well is considered "dead" if, in ANY:
+        - experiment
+        - field of view
+        - channel
+    the number of segmented cells is below `cell_count_cutoff`.
 
-    clone_cp_feats_cy5 = zroots[experiment].get_cell_properties(field_of_view, well, "CY5")
-    clone_cp_feats_cy5_mean = np.nanmean(zscore(clone_cp_feats_cy5), axis=0)
+    Parameters
+    ----------
+    zroots : list
+        List of ExperimentStore objects.
+    experiments_to_check : list[int]
+        Indices of experiments in zroots to evaluate.
+    n_fovs : int
+        Number of fields of view per experiment.
+    n_wells : int, default=96
+        Number of wells per plate.
+    cell_count_cutoff : int
+        Minimum number of cells required for a well to be considered valid.
+    channels : tuple[str]
+        Channels to check (e.g., ("BF", "CY5")).
 
-    cellpose_features[0] = 'count'
+    Returns
+    -------
+    dead_wells : list[int]
+        Sorted list of well indices that failed the cutoff.
+    dead_ids : list[int]
+        Row indices corresponding to dead wells across all FoVs
+        (compatible with row indexing: well + fov * n_wells).
+    """
 
-    # --- Images ---
-    img1 = zroots[experiment].get_label_image(field_of_view, well, "BF")
-    img2 = zroots[experiment].get_raw_intensities(field_of_view, well, "BF")
-    img3 = zroots[experiment].get_processed_intensities(field_of_view, well, "BF")
+    dead_wells = set()
 
-    img4 = zroots[experiment].get_label_image(field_of_view, well, "CY5")
-    img5 = zroots[experiment].get_raw_intensities(field_of_view, well, "CY5")
-    img6 = zroots[experiment].get_processed_intensities(field_of_view, well, "CY5")
+    for well in range(n_wells):
+        is_dead = False
 
-    # --- Figure + OUTER gridspec (2 rows x 2 cols: left image block, right barplots) ---
-    fig = plt.figure(figsize=f_size)
+        for fov in range(n_fovs):
+            for e in experiments_to_check:
+                for channel in channels:
+                    props = zroots[e].get_cell_properties(fov, well, channel)
 
-    outer = fig.add_gridspec(
-        2, 2,
-        width_ratios=w_ratios,   # left block vs bar column
-        wspace=outer_wspace,
-        hspace=outer_hspace
-    )
+                    if props is None or len(props) < cell_count_cutoff:
+                        is_dead = True
+                        break
 
-    # LEFT: nested gridspec for 2x3 images, with its own spacing
-    left_top = outer[0, 0].subgridspec(1, 3, wspace=img_wspace)
-    left_bot = outer[1, 0].subgridspec(1, 3, wspace=img_wspace)
+                if is_dead:
+                    break
+            if is_dead:
+                break
 
-    # If you also want independent vertical spacing *within* the left block,
-    # we do it by making a 2x3 subgridspec instead:
-    left = outer[:, 0].subgridspec(2, 3, wspace=img_wspace, hspace=img_hspace)
+        if is_dead:
+            dead_wells.add(well)
 
-    axes_img = [
-        fig.add_subplot(left[0, 0]),
-        fig.add_subplot(left[0, 1]),
-        fig.add_subplot(left[0, 2]),
-        fig.add_subplot(left[1, 0]),
-        fig.add_subplot(left[1, 1]),
-        fig.add_subplot(left[1, 2]),
+    dead_wells = sorted(dead_wells)
+
+    # Expand to row indices across FoVs
+    dead_ids = [
+        well + (fov * n_wells)
+        for fov in range(n_fovs)
+        for well in dead_wells
     ]
 
-    # RIGHT: barplots (one per row)
-    axes_bar = [
-        fig.add_subplot(outer[0, 1]),
-        fig.add_subplot(outer[1, 1]),
-    ]
+    return dead_wells, dead_ids
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def build_training_data(
+    zroots,
+    exp_conditions=None,
+    experiments_to_compare=None,
+    n_fovs_2_analyze=9,
+    n_wells=96,
+    include_channels=("BF", "CY5"),
+    exclude_features=None,
+    include_pixel_intensity=False,
+    pixel_intensity_channels=("BF", "CY5"),
+):
+    """
+    Build training_data as a dictionary of condition -> numpy array.
 
-    # --- Plot images ---
-    titles = [
-        "Label Image (BF)", "Raw Intensities (BF)", "Processed Intensities (BF)",
-        "Label Image (CY5)", "Raw Intensities (CY5)", "Processed Intensities (CY5)"
-    ]
+    By default, this reproduces the original behavior exactly:
+    - rows = n_wells * n_fovs_2_analyze
+    - columns = 22 BF features + 22 CY5 features = 44
+    - one row per (well, field_of_view)
 
-    for ax, img, title in zip(axes_img, [img1, img2, img3, img4, img5, img6], titles):
-        ax.imshow(img)
-        if img_titles:
-            ax.set_title(title)
-        ax.axis("off")
+    Optional behavior:
+    - exclude selected Cellpose features
+    - append pixel intensity for selected channels
 
-    # --- Plot bar charts ---
-    axes_bar[0].bar(cellpose_features, clone_cp_feats_bf_mean, color=apc.aster)
-    axes_bar[0].set_xticklabels([])
-    if bar_titles:
-        axes_bar[0].set_title("CellPose Features (BF)")
-    axes_bar[0].set_ylabel("mean z-score")
+    Parameters
+    ----------
+    zroots : list
+        List of ExperimentStore-like objects, one per condition.
+    exp_conditions : list[str] or None
+        Names for the conditions. If None, defaults to:
+        ["e_stat_16","e_stat_22","e_stat_30","l_stat_16","l_stat_22","l_stat_30"]
+    experiments_to_compare : list[int] or None
+        Indices into zroots. If None, defaults to [0,1,2,3,4,5].
+    n_fovs_2_analyze : int
+        Number of FoVs per experiment to use.
+    n_wells : int
+        Number of wells per experiment.
+    include_channels : tuple[str]
+        Channels to include, typically ("BF","CY5").
+    exclude_features : list[str] or None
+        Feature names to exclude, e.g.
+        ["moments_hu-4", "moments_hu-5", "moments_hu-6"]
+    include_pixel_intensity : bool
+        If True, append pixel intensity features for channels in pixel_intensity_channels.
+    pixel_intensity_channels : tuple[str]
+        Channels for which to append pixel intensity if include_pixel_intensity=True.
 
-    axes_bar[1].bar(cellpose_features, clone_cp_feats_cy5_mean, color=apc.aster)
-    axes_bar[1].set_xticklabels(cellpose_features, rotation=45, ha="right")
-    if bar_titles:
-        axes_bar[1].set_title("CellPose Features (CY5)")
-    axes_bar[1].set_ylabel("mean z-score")
+    Returns
+    -------
+    training_data : dict[str, np.ndarray]
+        Condition -> array of shape (n_wells * n_fovs_2_analyze, n_features)
+    training_feature_labels : list[str]
+        Column labels in the exact order used in training_data.
+    feature_slices : dict[str, slice]
+        Column slices for each channel block and pixel intensity block.
+        Example:
+            feature_slices["BF"]
+            feature_slices["CY5"]
+            feature_slices["BF_pixel_intensity"]
+    """
 
-    # --- Suptitle ---
-    if sup_title:
-        fig.suptitle(
-            plot_title,
-            x=sup_title_params[0],
-            y=sup_title_params[1],
-            fontsize=sup_title_params[2]
+    if exp_conditions is None:
+        exp_conditions = [
+            "e_stat_16",
+            "e_stat_22",
+            "e_stat_30",
+            "l_stat_16",
+            "l_stat_22",
+            "l_stat_30",
+        ]
+
+    if experiments_to_compare is None:
+        experiments_to_compare = [0, 1, 2, 3, 4, 5]
+
+    if exclude_features is None:
+        exclude_features = []
+
+    if len(exp_conditions) != len(experiments_to_compare):
+        raise ValueError(
+            f"exp_conditions has length {len(exp_conditions)} but "
+            f"experiments_to_compare has length {len(experiments_to_compare)}"
         )
+
+    # --------------------------------------------------
+    # Determine feature names per channel from a known-good reference
+    # --------------------------------------------------
+    channel_feature_names = {}
+    training_feature_labels = []
+    feature_slices = {}
+
+    col_start = 0
+
+    for channel in include_channels:
+        reference_props = None
+
+        # find the first valid dataframe for this channel
+        for exp_idx in experiments_to_compare:
+            found = False
+            for fov in range(n_fovs_2_analyze):
+                for well in range(n_wells):
+                    props = zroots[exp_idx].get_cell_properties(fov, well, channel)
+                    if props is not None and len(props) > 0:
+                        reference_props = props
+                        found = True
+                        break
+                if found:
+                    break
+            if found:
+                break
+
+        if reference_props is None or len(reference_props) == 0:
+            raise ValueError(f"Could not find reference features for channel {channel}")
+
+        feature_names = reference_props.columns.tolist()
+
+        if len(feature_names) > 0 and feature_names[0] == "label":
+            feature_names[0] = "count"
+
+        feature_names = [f for f in feature_names if f not in exclude_features]
+        channel_feature_names[channel] = feature_names
+
+        # labels for this channel block
+        channel_labels = [f"{f} ({channel.lower()})" for f in feature_names]
+        training_feature_labels.extend(channel_labels)
+
+        col_end = col_start + len(feature_names)
+        feature_slices[channel] = slice(col_start, col_end)
+        col_start = col_end
+
+        # optional pixel intensity
+        if include_pixel_intensity and channel in pixel_intensity_channels:
+            training_feature_labels.append(f"pixel_intensity ({channel.lower()})")
+            feature_slices[f"{channel}_pixel_intensity"] = slice(col_start, col_start + 1)
+            col_start += 1
+
+    n_features_total = len(training_feature_labels)
+
+    # --------------------------------------------------
+    # Build arrays condition by condition
+    # --------------------------------------------------
+    experiment_cell_pose_means = []
+
+    for e in experiments_to_compare:
+        means = np.full((n_wells * n_fovs_2_analyze, n_features_total), np.nan, dtype=float)
+
+        for fov in range(n_fovs_2_analyze):
+            for well in range(n_wells):
+                row_idx = well + (fov * n_wells)
+                col_idx = 0
+
+                for channel in include_channels:
+                    props = zroots[e].get_cell_properties(fov, well, channel)
+
+                    if props is None or len(props) == 0:
+                        # skip this channel block; leave NaNs in place
+                        col_idx = feature_slices[channel].stop
+                        if include_pixel_intensity and channel in pixel_intensity_channels:
+                            col_idx += 1
+                        continue
+
+                    current_names = props.columns.tolist()
+                    if len(current_names) > 0 and current_names[0] == "label":
+                        current_names[0] = "count"
+                        props = props.copy()
+                        props.columns = current_names
+
+                    # subset + preserve order
+                    selected_feature_names = channel_feature_names[channel]
+                    props = props[selected_feature_names]
+
+                    # mean across cells in this FoV/well/channel
+                    try:
+                        means[row_idx, feature_slices[channel]] = np.array(
+                            np.nanmean(props, axis=0).astype("float32")
+                        )
+                    except Exception:
+                        pass
+
+                    col_idx = feature_slices[channel].stop
+
+                    # optional pixel intensity
+                    if include_pixel_intensity and channel in pixel_intensity_channels:
+                        try:
+                            label_arr = zroots[e].get_label_image(fov, well, channel)
+                            mask_arr = label_arr != 0
+                            proc_img = zroots[e].get_processed_intensities(fov, well, channel)
+
+                            pixel_vals = proc_img[mask_arr]
+                            if len(pixel_vals) > 0:
+                                means[row_idx, col_idx] = float(np.nanmean(pixel_vals))
+                        except Exception:
+                            pass
+
+                        col_idx += 1
+
+        experiment_cell_pose_means.append(means)
+
+    # --------------------------------------------------
+    # Package into training_data dict
+    # --------------------------------------------------
+    training_data = {
+        cond: experiment_cell_pose_means[i]
+        for i, cond in enumerate(exp_conditions)
+    }
+
+    return training_data, training_feature_labels, feature_slices
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def plot_mean_relative_feature_values_across_conditions(
+    training_data,
+    training_feature_labels,
+    condition_order=None,
+    col_titles=None,
+    figsize=(22, 3),
+    cmap="apc:orange_sage_r",
+    title="Mean Relative Feature Values Across Conditions",
+    show_title=True,
+    title_fontsize=18,
+    xtick_colors=None,
+    ytick_colors=None,
+    xtick_rotation=45,
+    xtick_fontsize=None,
+    ytick_fontsize=None,
+    axis_color="black",
+    font_family=None,
+    font_size=10,
+    title_size=None,
+    double_zscore=True,
+    orientation="horizontal",  # "horizontal" or "vertical"
+    cbar=True,
+    cbar_label=None,
+    cbar_shrink=1.0,
+    cbar_aspect=30,
+    vmin=None,
+    vmax=None,
+    save=False,
+    figtitle="mean_relative_feature_values_across_conditions",
+):
+    """
+    Plot mean relative feature values across conditions as a heatmap.
+
+    orientation:
+        "horizontal" -> conditions on y-axis, features on x-axis
+        "vertical"   -> conditions on x-axis, features on y-axis
+    """
+
+    if condition_order is None:
+        condition_order = list(training_data.keys())
+
+    if col_titles is None:
+        col_titles = condition_order
+
+    if len(condition_order) != len(col_titles):
+        raise ValueError(
+            f"condition_order has length {len(condition_order)} but col_titles has length {len(col_titles)}"
+        )
+
+    n_features = training_data[condition_order[0]].shape[1]
+
+    if len(training_feature_labels) != n_features:
+        raise ValueError(
+            f"training_feature_labels has length {len(training_feature_labels)} "
+            f"but training_data arrays have {n_features} columns"
+        )
+
+    if xtick_fontsize is None:
+        xtick_fontsize = font_size
+    if ytick_fontsize is None:
+        ytick_fontsize = font_size
+
+    # --- Compute condition means ---
+    condition_means = np.vstack([
+        np.nanmean(training_data[c], axis=0) for c in condition_order
+    ])
+
+    # --- Z-score ---
+    if double_zscore:
+        # Preserves your original notebook behavior
+        plot_mat = zscore(zscore(condition_means, axis=0), axis=None)
+    else:
+        plot_mat = condition_means.copy()
+
+    plot_df = pd.DataFrame(
+        plot_mat,
+        index=col_titles,
+        columns=training_feature_labels
+    )
+
+    # --- Orientation ---
+    if orientation == "vertical":
+        plot_df = plot_df.T
+    elif orientation != "horizontal":
+        raise ValueError('orientation must be "horizontal" or "vertical"')
+
+    # --- Plot ---
+    fig, ax = plt.subplots(figsize=figsize)
+
+    hm = sns.heatmap(
+        plot_df,
+        cmap=cmap,
+        cbar=cbar,
+        vmin=vmin,
+        vmax=vmax,
+        ax=ax,
+        cbar_kws={
+            "shrink": cbar_shrink,
+            "aspect": cbar_aspect
+        } if cbar else None
+    )
+
+    # --- Colorbar label ---
+    if cbar and cbar_label is not None:
+        hm.collections[0].colorbar.set_label(
+            cbar_label,
+            fontsize=font_size,
+            fontfamily=font_family
+        )
+
+    # --- Title ---
+    if show_title:
+        ax.set_title(
+            title,
+            fontsize=title_size or title_fontsize or font_size,
+            fontfamily=font_family
+        )
+
+    # --- Tick label formatting ---
+    ax.set_xticklabels(
+        ax.get_xticklabels(),
+        rotation=xtick_rotation,
+        ha="right" if xtick_rotation != 0 else "center",
+        rotation_mode="anchor",
+        fontsize=xtick_fontsize,
+        fontfamily=font_family
+    )
+
+    ax.set_yticklabels(
+        ax.get_yticklabels(),
+        fontsize=ytick_fontsize,
+        fontfamily=font_family
+    )
+
+    # --- Default tick label color first ---
+    for tick in ax.get_xticklabels():
+        tick.set_color(axis_color)
+    for tick in ax.get_yticklabels():
+        tick.set_color(axis_color)
+
+    # --- Apply custom tick colors LAST ---
+    if orientation == "horizontal":
+        # x-axis = features
+        if xtick_colors is not None:
+            if len(xtick_colors) != len(ax.get_xticklabels()):
+                raise ValueError(
+                    f"xtick_colors has length {len(xtick_colors)} but there are {len(ax.get_xticklabels())} x-axis labels"
+                )
+            for tick, color in zip(ax.get_xticklabels(), xtick_colors):
+                tick.set_color(color)
+
+        # y-axis = conditions
+        if ytick_colors is not None:
+            if len(ytick_colors) != len(ax.get_yticklabels()):
+                raise ValueError(
+                    f"ytick_colors has length {len(ytick_colors)} but there are {len(ax.get_yticklabels())} y-axis labels"
+                )
+            for tick, color in zip(ax.get_yticklabels(), ytick_colors):
+                tick.set_color(color)
+
+    elif orientation == "vertical":
+        # x-axis = conditions
+        if xtick_colors is not None:
+            if len(xtick_colors) != len(ax.get_xticklabels()):
+                raise ValueError(
+                    f"xtick_colors has length {len(xtick_colors)} but there are {len(ax.get_xticklabels())} x-axis labels"
+                )
+            for tick, color in zip(ax.get_xticklabels(), xtick_colors):
+                tick.set_color(color)
+
+        # y-axis = features
+        if ytick_colors is not None:
+            if len(ytick_colors) != len(ax.get_yticklabels()):
+                raise ValueError(
+                    f"ytick_colors has length {len(ytick_colors)} but there are {len(ax.get_yticklabels())} y-axis labels"
+                )
+            for tick, color in zip(ax.get_yticklabels(), ytick_colors):
+                tick.set_color(color)
+
+    # --- Axis styling ---
+    for spine in ax.spines.values():
+        spine.set_color(axis_color)
+
+    # style tick MARKS, not label colors
+    ax.tick_params(axis="x", color=axis_color)
+    ax.tick_params(axis="y", color=axis_color)
+
+    plt.tight_layout()
     plt.show()
 
-    fig.savefig('chlorella_pub_fig_' + figtitle + '.svg', bbox_inches='tight')
-    fig.savefig('chlorella_pub_fig_' + figtitle + '.pdf', bbox_inches='tight')
-    fig.savefig('chlorella_pub_fig_' + figtitle + '.png', bbox_inches='tight')
+    if save:
+        fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.svg', bbox_inches='tight')
+        fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.pdf', bbox_inches='tight')
+        fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.png', bbox_inches='tight')
 
+    return fig, ax, plot_df
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def make_condition_matrix_finite(arr):
+    arr = arr.copy().astype(float)
 
+    # treat inf as nan
+    arr[~np.isfinite(arr)] = np.nan
 
-def cluster_by_feats(zroots,clone,exp,fov,channel,feat_id_range,fig_size=(10,10),figtitle='',col_map="apc:oranges_r"):
-    
-    # cluster cells within an image by feature
-    moments_df=zroots[exp].get_cell_properties(fov, clone, "CY5").iloc[:, feat_id_range[0]:feat_id_range[1]]
-    
-    # zscore before taking cosing distance
-    z_moments=zscore(moments_df.to_numpy(), axis=0)
-    cosine_dist_of_moments=np.zeros((len(moments_df),len(moments_df)))
-    
-    for i in range(len(moments_df)):
-        for j in range(len(moments_df)):
-    
-            m1=z_moments[i]
-            m2=z_moments[j]
-            cosine_dist_of_moments[i,j]=nan_cosine_distance(m1,m2)
+    # compute column means ignoring nan
+    col_means = np.nanmean(arr, axis=0)
 
-    # convert square distance matrix to condensed form
-    condensed_dist = squareform(cosine_dist_of_moments, checks=False)
+    # fail loudly if an entire feature column is missing
+    bad_cols = np.where(np.isnan(col_means))[0]
+    if len(bad_cols) > 0:
+        raise ValueError(
+            f"These feature columns are all-NaN and cannot be imputed: {bad_cols}"
+        )
 
-    # build linkage from the PRECOMPUTED distances
-    #row_linkage = linkage(condensed_dist, method="average")
-    row_linkage = linkage(squareform(cosine_dist_of_moments, checks=False), method="average")
+    # fill nan entries with column means
+    nan_rows, nan_cols = np.where(np.isnan(arr))
+    arr[nan_rows, nan_cols] = col_means[nan_cols]
 
+    return arr
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def remove_rows_cols(array, row_indices, col_indices):
+    """
+    Removes specified rows and columns from a 2D numpy array.
+    """
+    # Remove rows (axis 0)
+    temp_array = np.delete(array, row_indices, axis=0)
+    # Remove columns (axis 1)
+    final_array = np.delete(temp_array, col_indices, axis=1)
+    return final_array
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def pca_on_np_array(nparray):
+    '''rows are instances , columns are dimensions(variables)'''
+    #center data
+    mean_value = np.mean(nparray, axis = 0) 
+    nparray -= mean_value 
+    #calculate covariance matrix
+    cov = np.cov(nparray, rowvar = False)
+    #get eigenvectors and eigenvalues of the covariance matrix
+    evals , evecs = LA.eigh(cov)
 
-    g=sns.clustermap(cosine_dist_of_moments,
-                     row_linkage=row_linkage,
-                     col_linkage=row_linkage,
-                     figsize=fig_size,
-                     yticklabels=False,
-                     xticklabels=False,
-                     cmap=col_map,
-                     cbar=False,
-                     cbar_pos=[1, 0.003, 0.01, .796])
-    
-    
-    plt.xticks(ticks=[], labels=[])
-    plt.yticks(ticks=[], labels=[])
-    
-    
-    g.ax_row_dendrogram.set_visible(False)
-    g.ax_col_dendrogram.set_visible(False)
-    
-    
-    plt.show()
-    
-    
-    g.savefig('chlorella_pub_fig_' + figtitle + '.svg',bbox_inches='tight',pad_inches=0)
-    g.savefig('chlorella_pub_fig_' + figtitle + '.pdf',bbox_inches='tight',pad_inches=0)
-    g.savefig('chlorella_pub_fig_' + figtitle + '.png',bbox_inches='tight',pad_inches=0)
+    #formatting and SORT by eigenvalues (aka sort by how much variance each eigen vector explains)
+    idx = np.argsort(evals)[::-1]
+    evecs = evecs[:,idx]
+    evals = evals[idx]
 
-    return g,row_linkage
-
-
+    #this is your data represented as PCS 
+    nparray_represented_as_pcs = np.dot(nparray, evecs)
+    
+    return nparray_represented_as_pcs,evecs,evals,mean_value
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 def plot_tsne(input_dat,
               exp_embedding,
               exp_colors,
@@ -1498,15 +1718,135 @@ def plot_tsne(input_dat,
     plt.yticks([])
     plt.show()
     
-    fig.savefig('chlorella_pub_fig_' + figtitle + '.svg',bbox_inches='tight')
-    fig.savefig('chlorella_pub_fig_' + figtitle + '.pdf',bbox_inches='tight')
-    fig.savefig('chlorella_pub_fig_' + figtitle + '.png',bbox_inches='tight')
+    fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.svg',bbox_inches='tight')
+    fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.pdf',bbox_inches='tight')
+    fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.png',bbox_inches='tight')
 
     return pd.Series(zscore(input_dat[:,feat_2_color_by])).quantile(.95)
-    
+def train_and_predict(
+    data,
+    train_conditions,
+    test_condition,
+    model_type="ridge",
+    alpha=100,
+    n_pls_components=2
+):
+    """
+    data: dict[str, np.ndarray]  (96, 22)
+    train_conditions: list[str]
+    test_condition: str
+    """
+
+    # --- Build training matrix ---
+    X_train = np.hstack([data[c] for c in train_conditions])
+    y_train = data[test_condition]
+
+    # --- Choose model ---
+    if model_type == "ridge":
+        model = Ridge(alpha=alpha)
+    elif model_type == "pls":
+        model = PLSRegression(n_components=n_pls_components)
+    else:
+        raise ValueError("Unknown model_type")
+
+    # --- Scale + fit ---
+    pipeline = Pipeline([
+        ("scaler", StandardScaler()),
+        ("model", model)
+    ])
+
+    pipeline.fit(X_train, y_train)
+
+    # --- Predict ---
+    y_pred = pipeline.predict(X_train)
+
+    # --- Metrics ---
+    metrics = {
+        "r2_overall": r2_score(y_train, y_pred),
+        "rmse_overall": np.sqrt(mean_squared_error(y_train, y_pred)),
+        "r2_per_feature": [
+            r2_score(y_train[:, i], y_pred[:, i])
+            for i in range(y_train.shape[1])
+        ]
+    }
+
+    return y_pred, metrics, pipeline
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def cross_validated_performance(
+    data,
+    train_conditions,
+    test_condition,
+    model_type="ridge",
+    alpha=1,
+    n_splits=12
+):
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+
+    y_true = data[test_condition]
+    X_full = np.hstack([data[c] for c in train_conditions])
+
+    r2_scores = []
+
+    for train_idx, test_idx in kf.split(X_full):
+        X_train, X_test = X_full[train_idx], X_full[test_idx]
+        y_train, y_test = y_true[train_idx], y_true[test_idx]
+
+        if model_type == "ridge":
+            model = Ridge(alpha=alpha)
+        else:
+            model = PLSRegression(n_components=3)
+
+        pipeline = Pipeline([
+            ("scaler", StandardScaler()),
+            ("model", model)
+        ])
+
+        pipeline.fit(X_train, y_train)
+        y_pred = pipeline.predict(X_test)
+
+        r2_scores.append(r2_score(y_test, y_pred))
+
+    return r2_scores, y_test, y_pred
 
 
+#hold out strains for testing
 
+def cross_validated_performance(
+    data,
+    train_conditions,
+    test_condition,
+    model_type="ridge",
+    alpha=1,
+    n_splits=12
+):
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+
+    y_true = data[test_condition]
+    X_full = np.hstack([data[c] for c in train_conditions])
+
+    r2_scores = []
+
+    for train_idx, test_idx in kf.split(X_full):
+        X_train, X_test = X_full[train_idx], X_full[test_idx]
+        y_train, y_test = y_true[train_idx], y_true[test_idx]
+
+        if model_type == "ridge":
+            model = Ridge(alpha=alpha)
+        else:
+            model = PLSRegression(n_components=3)
+
+        pipeline = Pipeline([
+            ("scaler", StandardScaler()),
+            ("model", model)
+        ])
+
+        pipeline.fit(X_train, y_train)
+        y_pred = pipeline.predict(X_test)
+
+        r2_scores.append(r2_score(y_test, y_pred))
+
+    return r2_scores, y_test, y_pred
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 def cross_validation_and_alpha_scan(training_dat,
                                     exp_colors,
                                     exp_labels,
@@ -1572,269 +1912,666 @@ def cross_validation_and_alpha_scan(training_dat,
     plt.tight_layout()
     plt.show()
     
-    fig.savefig('chlorella_pub_fig_' + figtitle + '.svg',bbox_inches='tight')
-    fig.savefig('chlorella_pub_fig_' + figtitle + '.pdf',bbox_inches='tight')
-    fig.savefig('chlorella_pub_fig_' + figtitle + '.png',bbox_inches='tight')
+    fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.svg',bbox_inches='tight')
+    fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.pdf',bbox_inches='tight')
+    fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.png',bbox_inches='tight')
 
     return all_rs,all_ps
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def _cv_predict_metrics(X, y, alpha=1.0, n_splits=5, random_state=42):
+    """
+    Strain-level KFold CV: each strain is predicted out-of-sample exactly once.
+    Returns:
+      - overall R² (variance-weighted across outputs)
+      - overall RMSE
+      - per-feature R² (length n_features)
+    """
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
 
-    
-def showcase_clone_images_1_by_1(
-    zroots,
-    experiment=0,
-    field_of_view=0,
-    well=0,
-    f_size=[5, 5],
-    f_size_2=[5, 5],
-    show_labels=True,
-    marker_size_1=8,
-    marker_size_2=8,
-    marker_color_bf='yellow',
-    marker_color_cy='red',
+    y_true_all, y_pred_all = [], []
 
+    for train_idx, test_idx in kf.split(X):
+        X_train, X_test = X[train_idx], X[test_idx]
+        y_train, y_test = y[train_idx], y[test_idx]
+
+        model = Pipeline([
+            ("scaler", StandardScaler()),
+            ("ridge", Ridge(alpha=alpha))
+        ])
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+
+        y_true_all.append(y_test)
+        y_pred_all.append(y_pred)
+
+    y_true_all = np.vstack(y_true_all)
+    y_pred_all = np.vstack(y_pred_all)
+
+    r2_overall = r2_score(y_true_all, y_pred_all, multioutput="variance_weighted")
+    rmse_overall = np.sqrt(mean_squared_error(y_true_all, y_pred_all))
+
+    r2_per_feature = np.array([
+        r2_score(y_true_all[:, j], y_pred_all[:, j])
+        for j in range(y.shape[1])
+    ])
+
+    return r2_overall, rmse_overall, r2_per_feature
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def condition_holdout_permutation_test(
+    data,
+    alpha=1000,
+    n_splits=10,
+    n_permutations=100,
+    random_state=42
 ):
+    """
+    For each holdout condition:
+      - Train on all other conditions (inputs concatenated)
+      - Predict holdout condition (24-d target)
+      - Compute real CV metrics
+      - Compute null distribution by permuting y across strains
+    Returns a dict with real metrics, null distributions, and permutation p-values.
+    """
+    rng = np.random.default_rng(random_state)
 
-    # --- Cellpose features ---
-    clone_cp_feats_bf = zroots[experiment].get_cell_properties(field_of_view, well, "BF")
-    clone_cp_feats_bf_mean = np.nanmean(zscore(clone_cp_feats_bf), axis=0)
+    conditions = list(data.keys())
+    n_conditions = len(conditions)
+    n_strains, n_features = next(iter(data.values())).shape
 
-    clone_cp_feats_cy5 = zroots[experiment].get_cell_properties(field_of_view, well, "CY5")
-    clone_cp_feats_cy5_mean = np.nanmean(zscore(clone_cp_feats_cy5), axis=0)
+    # Results containers
+    real_r2 = np.zeros(n_conditions)
+    real_rmse = np.zeros(n_conditions)
+    real_r2_feat = np.zeros((n_conditions, n_features))
 
+    null_r2 = np.zeros((n_conditions, n_permutations))
+    null_rmse = np.zeros((n_conditions, n_permutations))
+    # (optional) null per-feature is large; keep if you want
+    # null_r2_feat = np.zeros((n_conditions, n_permutations, n_features))
 
-    # --- Images ---
+    p_r2 = np.zeros(n_conditions)
+    p_rmse = np.zeros(n_conditions)
 
-    img1 = zroots[experiment].get_label_image(field_of_view, well, "BF")
-    img2 = zroots[experiment].get_raw_intensities(field_of_view, well, "BF")
-    img3 = zroots[experiment].get_processed_intensities(field_of_view, well, "BF")
+    for ci, holdout in enumerate(conditions):
+        train_conditions = [c for c in conditions if c != holdout]
 
-    img4 = zroots[experiment].get_label_image(field_of_view, well, "CY5")
-    img5 = zroots[experiment].get_raw_intensities(field_of_view, well, "CY5")
-    img6 = zroots[experiment].get_processed_intensities(field_of_view, well, "CY5")
+        X = np.hstack([data[c] for c in train_conditions])     # (n_strains, 22*(C-1))
+        y = data[holdout]                                      # (n_strains, 22)
 
-    ims=[img1,img2,img3,img4,img5,img6]
+        # --- Real CV ---
+        r2o, rmseo, r2f = _cv_predict_metrics(
+            X, y, alpha=alpha, n_splits=n_splits, random_state=random_state
+        )
+        real_r2[ci] = r2o
+        real_rmse[ci] = rmseo
+        real_r2_feat[ci] = r2f
 
-    genroot='exp_' + str(experiment) + '_strain_' + str(well) + '_fov_' + str(field_of_view)
+        # --- Null via permutation of y rows ---
+        for p in range(n_permutations):
+            perm = rng.permutation(n_strains)
+            y_perm = y[perm]
 
-    bfroot='exp_' + str(experiment) + '_strain_' + str(well) + '_fov_' + str(field_of_view) + '_BF_'
-    cy5root='exp_' + str(experiment) + '_strain_' + str(well) + '_fov_' + str(field_of_view) + '_CY5_'
-    plt_names_roots=[bfroot+'label_image',
-                     bfroot+'raw_intensities',
-                     bfroot+'processed_intensities',
-                     cy5root+'label_image',
-                     cy5root+'raw_intensities',
-                     cy5root+'processed_intensities']
-
-        
-    for i in range(len(ims)):
-        fig, ax = plt.subplots(figsize=(f_size[0], f_size[1]))
-
-        if i == 0:
-
-            ax.imshow(ims[i])
-
-            if show_labels:
-            
-                try:
-                    outlines_bf=zroots[experiment].get_cell_outlines(field_of_view, well, "BF")
-                    for labels in range(len(outlines_bf)):
-                        ax.text(x=outlines_bf[labels][0][0],
-                                    y=outlines_bf[labels][0][1],
-                                    s=str(labels),
-                                    size=marker_size_1,
-                                    c=marker_color_bf)
-                except:
-                    pass
-
-            ax.axis('off')
-
-            fig.savefig(
-                plt_names_roots[i] + '.png',
-                bbox_inches='tight',
-                pad_inches=0
+            r2o_p, rmseo_p, _ = _cv_predict_metrics(
+                X, y_perm, alpha=alpha, n_splits=n_splits, random_state=random_state
             )
-            fig.savefig(
-                plt_names_roots[i] + '.pdf',
-                bbox_inches='tight',
-                pad_inches=0
+            null_r2[ci, p] = r2o_p
+            null_rmse[ci, p] = rmseo_p
+
+        # Permutation p-values (one-sided, “is real better than null?”)
+        # Add +1 to numerator/denominator for an unbiased finite-sample estimate.
+        p_r2[ci] = (1 + np.sum(null_r2[ci] >= real_r2[ci])) / (n_permutations + 1)
+        p_rmse[ci] = (1 + np.sum(null_rmse[ci] <= real_rmse[ci])) / (n_permutations + 1)
+
+    return {
+        "conditions": conditions,
+        "real": {
+            "r2_overall": real_r2,
+            "rmse_overall": real_rmse,
+            "r2_per_feature": real_r2_feat,
+        },
+        "null": {
+            "r2_overall": null_r2,
+            "rmse_overall": null_rmse,
+        },
+        "p_values": {
+            "r2_overall": p_r2,
+            "rmse_overall": p_rmse,
+        }
+    }
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def plot_sorted_r2_per_feature(
+    ridge_model_residulals,
+    training_feature_labels,
+    xtick_colors=None,
+    ytick_colors=None,
+    col_titles=None,
+    figsize=(8, 20),
+    figtitle='sorted_r2_per_feature',
+    cmap="apc:verde",
+    vmin=0,
+    vmax=1,
+    annot=True,
+    annot_fontsize=10,
+    annot_color="black",
+    sort_by_mean=True,
+    show_plot=True,
+    save=True,
+    # orientation
+    orientation="horizontal",  # "horizontal" or "vertical"
+    # font controls
+    font_family=None,
+    font_size=10,
+    title=None,
+    show_title=False,
+    title_size=None,
+    x_tick_fontsize=None,
+    y_tick_fontsize=None,
+    x_tick_rotation=0,
+    y_tick_rotation=0,
+    label_color="black",
+    axis_color="black",
+    # colorbar controls
+    cbar=True,
+    cbar_label=None,
+    cbar_shrink=1.0,
+    cbar_aspect=30,
+):
+    """
+    Plot per-feature R² values from condition_holdout_permutation_test or related output.
+
+    Parameters
+    ----------
+    ridge_model_residulals : dict
+        Output from cvp.condition_holdout_permutation_test(...)
+        Must contain:
+            ridge_model_residulals['real']['r2_per_feature']
+            ridge_model_residulals['conditions']   (optional, used if col_titles=None)
+    training_feature_labels : list[str]
+        Feature labels in the exact column order used to build training_data.
+    xtick_colors : list or None
+        Colors for x-axis tick labels. Must match number of x-axis labels.
+    ytick_colors : list or None
+        Colors for y-axis tick labels. Must match number of y-axis labels.
+    col_titles : list[str] or None
+        Condition titles. If None, uses ridge_model_residulals['conditions'].
+    figsize : tuple
+        Figure size.
+    figtitle : str
+        Root filename for saving.
+    cmap : str
+        Heatmap colormap.
+    vmin, vmax : float
+        Heatmap color scale limits.
+    annot : bool
+        Whether to annotate heatmap cells.
+    annot_fontsize : int
+        Font size of annotation text in heatmap cells.
+    annot_color : str
+        Color of annotation text in heatmap cells.
+    sort_by_mean : bool
+        If True, sort features by mean R² across conditions (descending).
+    show_plot : bool
+        Whether to display the figure.
+    save : bool
+        Whether to save png/pdf/svg.
+    orientation : str
+        "horizontal" = features on y-axis, conditions on x-axis
+        "vertical"   = features on x-axis, conditions on y-axis
+    font_family : str or None
+        Optional font family.
+    font_size : int
+        Base font size.
+    title : str or None
+        Optional title.
+    show_title : bool
+        Whether to show title.
+    title_size : int or None
+        Title fontsize override.
+    x_tick_fontsize : int or None
+        X tick label fontsize. Defaults to font_size.
+    y_tick_fontsize : int or None
+        Y tick label fontsize. Defaults to font_size.
+    x_tick_rotation : int or float
+        Rotation of x tick labels.
+    y_tick_rotation : int or float
+        Rotation of y tick labels.
+    label_color : str
+        Default color for tick labels.
+    axis_color : str
+        Color of axes spines and tick marks.
+    cbar : bool
+        Whether to show a colorbar.
+    cbar_label : str or None
+        Optional colorbar label.
+    cbar_shrink : float
+        Colorbar shrink factor.
+    cbar_aspect : int
+        Colorbar aspect ratio (higher = skinnier).
+
+    Returns
+    -------
+    fig, ax, plot_df
+        plot_df is the plotted dataframe.
+    """
+
+    r2_per_feature = np.array(ridge_model_residulals['real']['r2_per_feature'])
+
+    if r2_per_feature.ndim != 2:
+        raise ValueError(
+            f"Expected ridge_model_residulals['real']['r2_per_feature'] to be 2D, "
+            f"got shape {r2_per_feature.shape}"
+        )
+
+    n_conditions, n_features = r2_per_feature.shape
+
+    if len(training_feature_labels) != n_features:
+        raise ValueError(
+            f"training_feature_labels has length {len(training_feature_labels)} "
+            f"but r2_per_feature has {n_features} features"
+        )
+
+    if col_titles is None:
+        if 'conditions' in ridge_model_residulals:
+            col_titles = ridge_model_residulals['conditions']
+        else:
+            col_titles = [f"cond_{i}" for i in range(n_conditions)]
+
+    if len(col_titles) != n_conditions:
+        raise ValueError(
+            f"col_titles has length {len(col_titles)} but there are {n_conditions} conditions"
+        )
+
+    if x_tick_fontsize is None:
+        x_tick_fontsize = font_size
+    if y_tick_fontsize is None:
+        y_tick_fontsize = font_size
+
+    # Base dataframe: rows = features, cols = conditions
+    plot_df = pd.DataFrame(
+        r2_per_feature.T,
+        index=training_feature_labels,
+        columns=col_titles
+    )
+
+    # Sort before optional transpose so feature ordering is preserved
+    if sort_by_mean:
+        sort_order = plot_df.mean(axis=1).sort_values(ascending=False).index
+        plot_df = plot_df.loc[sort_order]
+
+    # Orientation handling
+    if orientation == "vertical":
+        plot_df = plot_df.T
+    elif orientation != "horizontal":
+        raise ValueError('orientation must be "horizontal" or "vertical"')
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    hm = sns.heatmap(
+        plot_df,
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        annot=annot,
+        fmt=".2f" if annot else "",
+        cbar=cbar,
+        ax=ax,
+        cbar_kws={
+            "shrink": cbar_shrink,
+            "aspect": cbar_aspect
+        } if cbar else None
+    )
+
+    # Colorbar styling
+    if cbar and cbar_label is not None:
+        cbar_obj = hm.collections[0].colorbar
+        cbar_obj.set_label(
+            cbar_label,
+            fontsize=font_size,
+            fontfamily=font_family
+        )
+
+    # Annotation styling
+    if annot:
+        for text in hm.texts:
+            text.set_fontsize(annot_fontsize)
+            text.set_color(annot_color)
+            if font_family is not None:
+                text.set_fontfamily(font_family)
+
+    # Title
+    if show_title:
+        if title is None:
+            title = "Per-feature cross-validated R²"
+        ax.set_title(
+            title,
+            fontsize=title_size or font_size,
+            fontfamily=font_family,
+            color=label_color
+        )
+
+    # Set tick labels with base formatting first
+    ax.set_xticklabels(
+        ax.get_xticklabels(),
+        rotation=x_tick_rotation,
+        ha="center" if x_tick_rotation == 0 else "right",
+        rotation_mode="anchor",
+        fontsize=x_tick_fontsize,
+        fontfamily=font_family
+    )
+
+    ax.set_yticklabels(
+        ax.get_yticklabels(),
+        rotation=y_tick_rotation,
+        fontsize=y_tick_fontsize,
+        fontfamily=font_family
+    )
+
+    # Default label colors
+    for tick in ax.get_xticklabels():
+        tick.set_color(label_color)
+    for tick in ax.get_yticklabels():
+        tick.set_color(label_color)
+
+    # Apply custom x tick colors LAST so they are not overridden
+    if xtick_colors is not None:
+        if len(xtick_colors) != len(ax.get_xticklabels()):
+            raise ValueError(
+                f"xtick_colors has length {len(xtick_colors)} but there are {len(ax.get_xticklabels())} x-axis labels"
             )
-            fig.savefig(
-                plt_names_roots[i] + '.svg',
-                bbox_inches='tight',
-                pad_inches=0
+        for tick_label, color in zip(ax.get_xticklabels(), xtick_colors):
+            tick_label.set_color(color)
+
+    # Apply custom y tick colors LAST so they are not overridden
+    if ytick_colors is not None:
+        if len(ytick_colors) != len(ax.get_yticklabels()):
+            raise ValueError(
+                f"ytick_colors has length {len(ytick_colors)} but there are {len(ax.get_yticklabels())} y-axis labels"
             )
+        for tick_label, color in zip(ax.get_yticklabels(), ytick_colors):
+            tick_label.set_color(color)
 
-        if i == 3:
+    # Axis styling
+    for spine in ax.spines.values():
+        spine.set_color(axis_color)
 
-            ax.imshow(ims[i])
+    # Only style tick MARKS here, not label colors
+    ax.tick_params(axis="x", color=axis_color)
+    ax.tick_params(axis="y", color=axis_color)
 
-            if show_labels:
+    plt.tight_layout()
 
-                try:
-                    outlines_cy5=zroots[experiment].get_cell_outlines(field_of_view, well, "CY5")
-                    for labels in range(len(outlines_cy5)):
-                        ax.text(x=outlines_cy5[labels][0][0],
-                                    y=outlines_cy5[labels][0][1],
-                                    s=str(labels),
-                                    size=marker_size_1,
-                                    c=marker_color_cy)
-                except:
-                    pass
-
-            ax.axis('off')
-
-            fig.savefig(
-                plt_names_roots[i] + '.png',
-                bbox_inches='tight',
-                pad_inches=0
-            )
-            fig.savefig(
-                plt_names_roots[i] + '.pdf',
-                bbox_inches='tight',
-                pad_inches=0
-            )
-            fig.savefig(
-                plt_names_roots[i] + '.svg',
-                bbox_inches='tight',
-                pad_inches=0
-            )
-
-        if i not in [0,3]:
-
-            ax.imshow(ims[i])
-            ax.axis('off')
-
-            fig.savefig(
-                plt_names_roots[i] + '.png',
-                bbox_inches='tight',
-                pad_inches=0
-            )
-            fig.savefig(
-                plt_names_roots[i] + '.pdf',
-                bbox_inches='tight',
-                pad_inches=0
-            )
-            fig.savefig(
-                plt_names_roots[i] + '.svg',
-                bbox_inches='tight',
-                pad_inches=0
-            )
-
+    if show_plot:
         plt.show()
-        plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(f_size_2[0], f_size_2[1]))
+    if save:
+        fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.svg', bbox_inches='tight')
+        fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.pdf', bbox_inches='tight')
+        fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.png', bbox_inches='tight')
 
+    return fig, ax, plot_df
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def plot_true_vs_predicted_pca_by_condition(
+    training_data,
+    exp_conditions,
+    dead_ids,
+    ytick_colors,
+    col_titles,
+    alpha=100,
+    model_type="ridge",
+    figsize=(30, 20),
+    nrows=2,
+    ncols=3,
+    prediction_color=apc.shell,
+    prediction_alpha=0.8,
+    ground_truth_alpha=0.8,
+    quiver_color="gray",
+    quiver_alpha=0.2,
+    quiver_width=0.001,
+    title_fontsize=24,
+    axis_label_fontsize=12,
+    legend_loc="lower left",
+    show_legend=True,
+    hide_ticks=True,
+    xlabel="PC1",
+    ylabel="PC2",
+    save=False,
+    figtitle="true_vs_predicted_phenotype_visualized_in_pc_space",
+):
+    """
+    For each condition in exp_conditions:
+      1. train a model to predict that condition from all others
+      2. stack ground-truth and predicted matrices
+      3. run PCA jointly on the stacked matrix
+      4. remove dead_ids rows
+      5. plot ground truth, predictions, and connecting arrows
 
-    label_arr_bf=copy.deepcopy(zroots[experiment].get_label_image(field_of_view, well, "BF"))
-    mask_arr_bf = np.where(label_arr_bf != 0, 1, 0)
+    Parameters
+    ----------
+    training_data : dict[str, np.ndarray]
+        Dictionary mapping condition name -> matrix of shape (n_rows, n_features).
+        This should usually be training_data_finite.
+    exp_conditions : list[str]
+        Condition names in the order to plot.
+    dead_ids : list[int]
+        Row indices to remove from each condition matrix.
+    ytick_colors : list
+        One color per condition for ground-truth points.
+    col_titles : list[str]
+        One plot title per condition.
+    alpha : float
+        Ridge alpha used in cvp.train_and_predict.
+    model_type : str
+        Model type passed to cvp.train_and_predict.
+    figsize : tuple
+        Figure size.
+    nrows, ncols : int
+        Subplot grid dimensions.
+    prediction_color : matplotlib color
+        Color for predicted points.
+    prediction_alpha : float
+        Alpha for predicted points.
+    ground_truth_alpha : float
+        Alpha for ground-truth points.
+    quiver_color : matplotlib color
+        Color for connecting arrows.
+    quiver_alpha : float
+        Alpha for arrows.
+    quiver_width : float
+        Arrow width.
+    title_fontsize : int
+        Font size for subplot titles.
+    axis_label_fontsize : int
+        Font size for axis labels.
+    legend_loc : str
+        Legend location.
+    show_legend : bool
+        Whether to show legend on each subplot.
+    hide_ticks : bool
+        Whether to hide x and y ticks.
+    xlabel, ylabel : str
+        Axis labels.
+    save : bool
+        Whether to save png/pdf/svg.
+    figtitle : str
+        Root filename for saving.
 
-    label_arr_cy5=copy.deepcopy(zroots[experiment].get_label_image(field_of_view, well, "CY5"))
-    mask_arr_cy5 = np.where(label_arr_cy5 != 0, 1, 0)
+    Returns
+    -------
+    fig, ax, data_for_PCA_graphs, metrics_by_condition
+        data_for_PCA_graphs is a list of [ground_truth_as_pcs_cleaned, prediction_as_pcs_cleaned]
+        metrics_by_condition is a list of metrics dicts returned by train_and_predict
+    """
 
+    if len(exp_conditions) != len(col_titles):
+        raise ValueError(
+            f"exp_conditions has length {len(exp_conditions)} but col_titles has length {len(col_titles)}"
+        )
 
-    ax.imshow(np.multiply(zroots[experiment].get_processed_intensities(field_of_view, well, "BF"),mask_arr_bf),cmap="apc:sunset",alpha=.8)
-    ax.imshow(np.multiply(zroots[experiment].get_processed_intensities(field_of_view, well, "CY5"),mask_arr_cy5),cmap="apc:sages_r",vmin=0,vmax=1,alpha=.8)
-    ax.set_xticks([]) 
-    ax.set_yticks([])
+    if len(exp_conditions) != len(ytick_colors):
+        raise ValueError(
+            f"exp_conditions has length {len(exp_conditions)} but ytick_colors has length {len(ytick_colors)}"
+        )
 
-    if show_labels:
-        try:
-            outlines_cy5=zroots[experiment].get_cell_outlines(field_of_view, well, "CY5")
-            for labels in range(len(outlines_cy5)):
-                ax.text(x=outlines_cy5[labels][0][0],
-                            y=outlines_cy5[labels][0][1],
-                            s=str(labels),
-                            size=marker_size_2,
-                            c=marker_color_cy)
-        except:
-            pass
+    if nrows * ncols < len(exp_conditions):
+        raise ValueError(
+            f"subplot grid {nrows}x{ncols} cannot hold {len(exp_conditions)} conditions"
+        )
 
+    data_for_PCA_graphs = []
+    metrics_by_condition = []
 
+    for i in range(len(exp_conditions)):
+        test_condition = exp_conditions[i]
+        train_conditions = [e for e in exp_conditions if e != test_condition]
 
-        try:
-            outlines_bf=zroots[experiment].get_cell_outlines(field_of_view, well, "BF")
-            for labels in range(len(outlines_bf)):
-                ax.text(x=outlines_bf[labels][0][0],
-                            y=outlines_bf[labels][0][1],
-                            s=str(labels),
-                            size=marker_size_2,
-                            c=marker_color_bf)
-        except:
-            pass
+        y_pred, metrics, model = train_and_predict(
+            training_data,
+            train_conditions,
+            test_condition,
+            model_type=model_type,
+            alpha=alpha
+        )
 
-    fig.savefig(
-    genroot + 'merged_image' + '.png',
-    bbox_inches='tight',
-    pad_inches=0)
-    fig.savefig(
-    genroot + 'merged_image' + '.pdf',
-    bbox_inches='tight',
-    pad_inches=0)
-    fig.savefig(
-    genroot + 'merged_image' + '.svg',
-    bbox_inches='tight',
-    pad_inches=0)
+        stacked_dat = np.vstack([training_data[test_condition], y_pred])
+
+        experiment_as_pcs, experiment_pc_evecs, experiment_pc_evals, experiment_pc_mean_value = pca_on_np_array(stacked_dat)
+
+        n_rows = training_data[test_condition].shape[0]
+
+        ground_truth_as_pcs = experiment_as_pcs[0:n_rows]
+        prediction_as_pcs = experiment_as_pcs[n_rows:(2 * n_rows)]
+
+        ground_truth_as_pcs_cleaned = remove_rows_cols(
+            ground_truth_as_pcs,
+            row_indices=dead_ids,
+            col_indices=[]
+        )
+        prediction_as_pcs_cleaned = remove_rows_cols(
+            prediction_as_pcs,
+            row_indices=dead_ids,
+            col_indices=[]
+        )
+
+        data_for_PCA_graphs.append([ground_truth_as_pcs_cleaned, prediction_as_pcs_cleaned])
+        metrics_by_condition.append(metrics)
+
+    fig, ax = plt.subplots(nrows, ncols)
+    fig.set_size_inches(figsize[0], figsize[1])
+
+    if isinstance(ax, np.ndarray):
+        ax = ax.flatten()
+    else:
+        ax = np.array([ax])
+
+    for cond in range(len(exp_conditions)):
+        gt = data_for_PCA_graphs[cond][0]
+        pred = data_for_PCA_graphs[cond][1]
+
+        ax[cond].quiver(
+            gt[:, 0],
+            gt[:, 1],
+            pred[:, 0] - gt[:, 0],
+            pred[:, 1] - gt[:, 1],
+            angles="xy",
+            scale_units="xy",
+            scale=1,
+            color=quiver_color,
+            alpha=quiver_alpha,
+            width=quiver_width
+        )
+
+        ax[cond].scatter(
+            pred[:, 0],
+            pred[:, 1],
+            label="Prediction",
+            color=prediction_color,
+            alpha=prediction_alpha
+        )
+
+        ax[cond].scatter(
+            gt[:, 0],
+            gt[:, 1],
+            label="Ground Truth",
+            color=ytick_colors[cond],
+            alpha=ground_truth_alpha
+        )
+
+        ax[cond].set_title(col_titles[cond], fontsize=title_fontsize)
+
+        if hide_ticks:
+            ax[cond].set_xticks([])
+            ax[cond].set_yticks([])
+
+        ax[cond].set_xlabel(xlabel, fontsize=axis_label_fontsize)
+        ax[cond].set_ylabel(ylabel, fontsize=axis_label_fontsize)
+
+        if show_legend:
+            ax[cond].legend(loc=legend_loc)
+
+    # hide unused axes
+    for j in range(len(exp_conditions), len(ax)):
+        ax[j].axis("off")
 
     plt.show()
-    plt.close(fig)
+
+    if save:
+        fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.svg', bbox_inches='tight')
+        fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.pdf', bbox_inches='tight')
+        fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.png', bbox_inches='tight')
+
+    return fig, ax, data_for_PCA_graphs, 
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
 
-
-def plot_sorted_r2_per_feature(zroots,
-                               ridge_model_residulals,
-                               xtick_colors=[apc.vital, 
-                                             apc.wish, 
-                                             apc.dress, 
-                                             apc.lapis, 
-                                             apc.aster, 
-                                             apc.candy],
-                               col_titles=['16C e.stat', 
-                                           '22C e.stat', 
-                                           '30C e.stat', 
-                                           '16C l.stat',
-                                           '22C l.stat', 
-                                           '30C l.stat'],
-                               figsize=[60,8],
-                               ):
-
-    cellpose_features=zroots[0].get_cell_properties(0, 0, "BF").columns.tolist()
-    cellpose_features[0]='density'
-    training_features_labels=[]
-    for l in range(44):
-        if l<22:
-            training_features_labels.append(cellpose_features[l]+str( (' (bf)')))     
-        if l>=22:
-            training_features_labels.append(cellpose_features[l-22]+str( (' (cy5)')))
-                               
-    # for visualization, sort columns by the highest R2
-    biggest_label=np.mean(ridge_model_residulals['real']['r2_per_feature'],axis=0)
-    sorted_by_predictability=biggest_label.argsort()[::-1]
-    sorted_res=[]
-    
-    for r in ridge_model_residulals['real']['r2_per_feature']:
-        sorted_res.append(r[sorted_by_predictability])
-    
-    l_sorted=np.array(training_features_labels)[sorted_by_predictability]
-    
-    #plot
-    fig,ax=plt.subplots()
-    fig.set_size_inches(figsize[0],figsize[1])
-    
-        
-    for i, tick_label in enumerate(ax.axes.get_xticklabels()):
-        if i < len(xtick_colors):
-            tick_label.set_color(xtick_colors[i])
-
-
-    sns.heatmap(np.array(sorted_res).T,
-                cmap="apc:verde",
-                vmin=0,
-                vmax=1,
-                annot=True,
-                xticklabels=np.array(col_titles),
-                yticklabels=l_sorted
-           )
-
-    plt.show()
