@@ -194,6 +194,7 @@ def showcase_clone_images_1_by_1(
     marker_size_2=8,
     marker_color_bf='yellow',
     marker_color_cy='red',
+    show_only_merged=False
 
 ):
 
@@ -228,103 +229,103 @@ def showcase_clone_images_1_by_1(
                      cy5root+'raw_intensities',
                      cy5root+'processed_intensities']
 
-        
-    for i in range(len(ims)):
-        fig, ax = plt.subplots(figsize=(f_size[0], f_size[1]))
+    if show_only_merged==False:   
+        for i in range(len(ims)):
+            fig, ax = plt.subplots(figsize=(f_size[0], f_size[1]))
 
-        if i == 0:
+            if i == 0:
 
-            ax.imshow(ims[i])
+                ax.imshow(ims[i])
 
-            if show_labels:
-            
-                try:
-                    outlines_bf=zroots[experiment].get_cell_outlines(field_of_view, well, "BF")
-                    for labels in range(len(outlines_bf)):
-                        ax.text(x=outlines_bf[labels][0][0],
-                                    y=outlines_bf[labels][0][1],
-                                    s=str(labels),
-                                    size=marker_size_1,
-                                    c=marker_color_bf)
-                except:
-                    pass
+                if show_labels:
+                
+                    try:
+                        outlines_bf=zroots[experiment].get_cell_outlines(field_of_view, well, "BF")
+                        for labels in range(len(outlines_bf)):
+                            ax.text(x=outlines_bf[labels][0][0],
+                                        y=outlines_bf[labels][0][1],
+                                        s=str(labels),
+                                        size=marker_size_1,
+                                        c=marker_color_bf)
+                    except:
+                        pass
 
-            ax.axis('off')
+                ax.axis('off')
 
-            fig.savefig(
-                plt_names_roots[i] + '.png',
-                bbox_inches='tight',
-                pad_inches=0
-            )
-            fig.savefig(
-                plt_names_roots[i] + '.pdf',
-                bbox_inches='tight',
-                pad_inches=0
-            )
-            fig.savefig(
-                plt_names_roots[i] + '.svg',
-                bbox_inches='tight',
-                pad_inches=0
-            )
+                fig.savefig(
+                    plt_names_roots[i] + '.png',
+                    bbox_inches='tight',
+                    pad_inches=0
+                )
+                fig.savefig(
+                    plt_names_roots[i] + '.pdf',
+                    bbox_inches='tight',
+                    pad_inches=0
+                )
+                fig.savefig(
+                    plt_names_roots[i] + '.svg',
+                    bbox_inches='tight',
+                    pad_inches=0
+                )
 
-        if i == 3:
+            if i == 3:
 
-            ax.imshow(ims[i])
+                ax.imshow(ims[i])
 
-            if show_labels:
+                if show_labels:
 
-                try:
-                    outlines_cy5=zroots[experiment].get_cell_outlines(field_of_view, well, "CY5")
-                    for labels in range(len(outlines_cy5)):
-                        ax.text(x=outlines_cy5[labels][0][0],
-                                    y=outlines_cy5[labels][0][1],
-                                    s=str(labels),
-                                    size=marker_size_1,
-                                    c=marker_color_cy)
-                except:
-                    pass
+                    try:
+                        outlines_cy5=zroots[experiment].get_cell_outlines(field_of_view, well, "CY5")
+                        for labels in range(len(outlines_cy5)):
+                            ax.text(x=outlines_cy5[labels][0][0],
+                                        y=outlines_cy5[labels][0][1],
+                                        s=str(labels),
+                                        size=marker_size_1,
+                                        c=marker_color_cy)
+                    except:
+                        pass
 
-            ax.axis('off')
+                ax.axis('off')
 
-            fig.savefig(
-                plt_names_roots[i] + '.png',
-                bbox_inches='tight',
-                pad_inches=0
-            )
-            fig.savefig(
-                plt_names_roots[i] + '.pdf',
-                bbox_inches='tight',
-                pad_inches=0
-            )
-            fig.savefig(
-                plt_names_roots[i] + '.svg',
-                bbox_inches='tight',
-                pad_inches=0
-            )
+                fig.savefig(
+                    plt_names_roots[i] + '.png',
+                    bbox_inches='tight',
+                    pad_inches=0
+                )
+                fig.savefig(
+                    plt_names_roots[i] + '.pdf',
+                    bbox_inches='tight',
+                    pad_inches=0
+                )
+                fig.savefig(
+                    plt_names_roots[i] + '.svg',
+                    bbox_inches='tight',
+                    pad_inches=0
+                )
 
-        if i not in [0,3]:
+            if i not in [0,3]:
 
-            ax.imshow(ims[i])
-            ax.axis('off')
+                ax.imshow(ims[i])
+                ax.axis('off')
 
-            fig.savefig(
-                plt_names_roots[i] + '.png',
-                bbox_inches='tight',
-                pad_inches=0
-            )
-            fig.savefig(
-                plt_names_roots[i] + '.pdf',
-                bbox_inches='tight',
-                pad_inches=0
-            )
-            fig.savefig(
-                plt_names_roots[i] + '.svg',
-                bbox_inches='tight',
-                pad_inches=0
-            )
+                fig.savefig(
+                    plt_names_roots[i] + '.png',
+                    bbox_inches='tight',
+                    pad_inches=0
+                )
+                fig.savefig(
+                    plt_names_roots[i] + '.pdf',
+                    bbox_inches='tight',
+                    pad_inches=0
+                )
+                fig.savefig(
+                    plt_names_roots[i] + '.svg',
+                    bbox_inches='tight',
+                    pad_inches=0
+                )
 
-        plt.show()
-        plt.close(fig)
+            plt.show()
+            plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(f_size_2[0], f_size_2[1]))
 
@@ -600,6 +601,9 @@ def plot_feature_cv_across_conditions(
     exclude_features=None,
     save=False,
     figtitle=None,
+    show_feature_axis=True,
+    reverse_feature_order=False,
+    xlim=[0,20]
 ):
     """
     Plot the coefficient of variation (CV = std / mean) for each feature.
@@ -611,6 +615,16 @@ def plot_feature_cv_across_conditions(
     exclude_features : list or None
         Feature names to exclude, e.g.
         ["moments_hu-4", "moments_hu-5", "moments_hu-6"]
+
+    show_feature_axis : bool
+        If False, hide the axis label, tick marks, and tick labels on the axis
+        that contains the feature names.
+        - vertical orientation -> hides x-axis feature labels/ticks
+        - horizontal orientation -> hides y-axis feature labels/ticks
+
+    reverse_feature_order : bool
+        If True, reverse the plotting order of features.
+        Default False preserves the original behavior.
     """
 
     if dead_ids is None:
@@ -754,6 +768,12 @@ def plot_feature_cv_across_conditions(
     results_df = pd.DataFrame(rows)
 
     # ----------------------------
+    # Reverse feature order if requested
+    # ----------------------------
+    if reverse_feature_order:
+        results_df = results_df.iloc[::-1].reset_index(drop=True)
+
+    # ----------------------------
     # Plot
     # ----------------------------
     fig, ax = plt.subplots(figsize=figsize)
@@ -775,7 +795,7 @@ def plot_feature_cv_across_conditions(
             )
 
         ax.set_xticks(pos)
-        if show_xticklabels:
+        if show_xticklabels and show_feature_axis:
             ax.set_xticklabels(labels, rotation=rotation, ha="right", rotation_mode="anchor")
         else:
             ax.set_xticklabels([""] * len(labels))
@@ -792,6 +812,10 @@ def plot_feature_cv_across_conditions(
             else:
                 ax.set_ylabel("Mean CV")
 
+        if not show_feature_axis:
+            ax.tick_params(axis="x", which="both", bottom=False, top=False, labelbottom=False)
+            ax.set_xlabel("")
+
     else:
         ax.barh(pos, results_df["mean_cv"], color=bar_color)
 
@@ -807,7 +831,7 @@ def plot_feature_cv_across_conditions(
             )
 
         ax.set_yticks(pos)
-        if show_xticklabels:
+        if show_xticklabels and show_feature_axis:
             ax.set_yticklabels(labels)
         else:
             ax.set_yticklabels([""] * len(labels))
@@ -823,6 +847,11 @@ def plot_feature_cv_across_conditions(
                 ax.set_xlabel("log2(CV)")
             else:
                 ax.set_xlabel("Mean CV")
+
+        if not show_feature_axis:
+            ax.tick_params(axis="y", which="both", left=False, right=False, labelleft=False)
+            ax.set_ylabel("")
+    ax.set_xlim(xlim)
 
     # styling
     for spine in ax.spines.values():
@@ -853,7 +882,7 @@ def plot_feature_cv_across_conditions(
         else:
             ax.set_title(title, fontsize=title_size or font_size)
 
-    if orientation == "vertical" and show_xticklabels:
+    if orientation == "vertical" and show_xticklabels and show_feature_axis:
         plt.subplots_adjust(bottom=0.3)
     else:
         plt.tight_layout()
@@ -863,9 +892,9 @@ def plot_feature_cv_across_conditions(
     if save:
         if figtitle is None:
             figtitle = f"feature_cv_{channel}"
-        fig.savefig("plots/"+figtitle + ".png", bbox_inches="tight")
-        fig.savefig("plots/"+figtitle + ".pdf", bbox_inches="tight")
-        fig.savefig("plots/"+figtitle + ".svg", bbox_inches="tight")
+        fig.savefig("plots/" + figtitle + ".png", bbox_inches="tight")
+        fig.savefig("plots/" + figtitle + ".pdf", bbox_inches="tight")
+        fig.savefig("plots/" + figtitle + ".svg", bbox_inches="tight")
 
     return fig, ax, results_df
 #----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2962,7 +2991,7 @@ def plot_feature_distribution_across_fovs(
     legend=True,
     legend_loc="best",
     save=False,
-    figtitle=None,
+    figtitle=None
 ):
     """
     Overlay histograms of a single-cell feature across fields of view for one strain.
@@ -3191,7 +3220,6 @@ def plot_feature_distribution_across_fovs(
         else:
             for text in leg.get_texts():
                 text.set_fontsize(font_size)
-
     plt.tight_layout()
     plt.show()
 
@@ -3531,6 +3559,8 @@ def plot_variance_partitioning_heatmap(
 
     return fig, ax, plot_df
 
+'''
+
 def predict_with_baseline(
     data,
     train_conditions,
@@ -3575,6 +3605,70 @@ def predict_with_baseline(
 
     else:
         raise ValueError("baseline_type must be 'global_mean' or 'row_mean'")
+
+    metrics = {
+        "r2_overall": r2_score(y_true, y_pred),
+        "rmse_overall": np.sqrt(mean_squared_error(y_true, y_pred)),
+        "r2_per_feature": [
+            r2_score(y_true[:, i], y_pred[:, i])
+            for i in range(y_true.shape[1])
+        ]
+    }
+
+    return y_pred, metrics
+'''
+
+def predict_with_baseline(
+    data,
+    train_conditions,
+    test_condition,
+    baseline_type="within_strain_mean",
+):
+    """
+    Predict a held-out condition using a simple baseline.
+
+    Parameters
+    ----------
+    data : dict[str, np.ndarray]
+        condition -> array of shape (n_rows, n_features)
+    train_conditions : list[str]
+        Conditions used as input
+    test_condition : str
+        Condition to predict
+    baseline_type : str
+        "global_mean"         : predict each feature using the grand mean across all rows and train conditions
+        "row_mean"            : predict each row using the mean across train conditions for that same row
+                                (legacy name; equivalent to within_strain_mean if row alignment is preserved)
+        "within_strain_mean"  : predict each row using the mean across training conditions for that same row
+
+    Returns
+    -------
+    y_pred : np.ndarray
+        Predicted matrix of shape (n_rows, n_features)
+    metrics : dict
+        Dict with:
+            r2_overall
+            rmse_overall
+            r2_per_feature
+    """
+
+    y_true = np.asarray(data[test_condition], dtype=float)
+    train_arrays = [np.asarray(data[c], dtype=float) for c in train_conditions]
+
+    if baseline_type == "global_mean":
+        stacked = np.vstack(train_arrays)
+        mean_vec = np.nanmean(stacked, axis=0)
+        y_pred = np.tile(mean_vec, (y_true.shape[0], 1))
+
+    elif baseline_type in ("row_mean", "within_strain_mean"):
+        # same row across conditions: preserves strain/FoV identity
+        stacked = np.stack(train_arrays, axis=0)   # (n_conditions, n_rows, n_features)
+        y_pred = np.nanmean(stacked, axis=0)
+
+    else:
+        raise ValueError(
+            "baseline_type must be 'global_mean', 'row_mean', or 'within_strain_mean'"
+        )
 
     metrics = {
         "r2_overall": r2_score(y_true, y_pred),
@@ -3905,6 +3999,8 @@ def plot_model_comparison_per_feature(
 
     return fig, ax, plot_df
 
+'''
+
 def compare_models_condition_holdout_cv(
     training_data,
     exp_conditions=None,
@@ -4017,6 +4113,197 @@ def compare_models_condition_holdout_cv(
             results["row_mean"]["rmse"][i] = np.sqrt(mean_squared_error(y_true_all, y_pred_row_all))
             results["row_mean"]["r2_per_feature"][i, :] = np.array([
                 r2_score(y_true_all[:, j], y_pred_row_all[:, j])
+                for j in range(n_features)
+            ])
+
+    return results
+'''
+
+def compare_models_condition_holdout_cv(
+    training_data,
+    exp_conditions=None,
+    ridge_alpha=3000,
+    n_splits=16,
+    random_state=42,
+    include_global_mean=True,
+    include_within_strain_mean=True,
+    n_wells=96,
+    n_fovs=None,
+):
+    """
+    Compare ridge regression to simple baselines using out-of-sample CV
+    within each held-out condition.
+
+    Models
+    ------
+    ridge
+        Ridge regression using all other conditions as predictors.
+
+    global_mean
+        Predict each feature using the grand mean of y_train in that fold.
+
+    within_strain_mean
+        Predict each row using the mean phenotype of the SAME strain (well)
+        across all FoVs and all training conditions. This preserves strain identity
+        but does not use exact FoV alignment.
+
+    Parameters
+    ----------
+    training_data : dict[str, np.ndarray]
+        Dict mapping condition -> array of shape (n_rows, n_features).
+        Usually this should be training_data_finite.
+    exp_conditions : list[str] or None
+        Condition order. If None, uses training_data.keys().
+    ridge_alpha : float
+        Alpha for ridge regression.
+    n_splits : int
+        Number of cross-validation folds.
+    random_state : int
+        Random seed.
+    include_global_mean : bool
+        Whether to include the global mean baseline.
+    include_within_strain_mean : bool
+        Whether to include the within-strain mean baseline.
+    n_wells : int
+        Number of wells (strains).
+    n_fovs : int or None
+        Number of FoVs per well. If None, inferred from row count.
+
+    Returns
+    -------
+    results : dict
+        Nested dict with keys for each model.
+        Each model contains:
+            "conditions"      : list of conditions
+            "overall_r2"      : np.ndarray, shape (n_conditions,)
+            "rmse"            : np.ndarray, shape (n_conditions,)
+            "r2_per_feature"  : np.ndarray, shape (n_conditions, n_features)
+    """
+
+    if exp_conditions is None:
+        exp_conditions = list(training_data.keys())
+
+    model_names = ["ridge"]
+    if include_global_mean:
+        model_names.append("global_mean")
+    if include_within_strain_mean:
+        model_names.append("within_strain_mean")
+
+    n_conditions = len(exp_conditions)
+    n_features = training_data[exp_conditions[0]].shape[1]
+
+    results = {}
+    for model_name in model_names:
+        results[model_name] = {
+            "conditions": exp_conditions,
+            "overall_r2": np.zeros(n_conditions),
+            "rmse": np.zeros(n_conditions),
+            "r2_per_feature": np.zeros((n_conditions, n_features)),
+        }
+
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+
+    for i, test_condition in enumerate(exp_conditions):
+        train_conditions = [c for c in exp_conditions if c != test_condition]
+
+        X_full = np.hstack([np.asarray(training_data[c], dtype=float) for c in train_conditions])
+        y_full = np.asarray(training_data[test_condition], dtype=float)
+
+        if n_fovs is None:
+            this_n_fovs = y_full.shape[0] // n_wells
+        else:
+            this_n_fovs = n_fovs
+
+        # containers for out-of-sample predictions
+        y_true_all = []
+        y_pred_ridge_all = []
+        y_pred_global_all = []
+        y_pred_within_all = []
+
+        for train_idx, test_idx in kf.split(X_full):
+            X_train, X_test = X_full[train_idx], X_full[test_idx]
+            y_train, y_test = y_full[train_idx], y_full[test_idx]
+
+            # --------------------
+            # Ridge
+            # --------------------
+            ridge_pipeline = Pipeline([
+                ("scaler", StandardScaler()),
+                ("ridge", Ridge(alpha=ridge_alpha))
+            ])
+            ridge_pipeline.fit(X_train, y_train)
+            y_pred_ridge = ridge_pipeline.predict(X_test)
+
+            y_true_all.append(y_test)
+            y_pred_ridge_all.append(y_pred_ridge)
+
+            # --------------------
+            # Global mean baseline
+            # --------------------
+            if include_global_mean:
+                mean_vec = np.nanmean(y_train, axis=0)
+                y_pred_global = np.tile(mean_vec, (len(test_idx), 1))
+                y_pred_global_all.append(y_pred_global)
+
+            # --------------------
+            # True within-strain baseline
+            # --------------------
+            if include_within_strain_mean:
+                y_pred_within = np.zeros_like(y_test)
+
+                for j, row in enumerate(test_idx):
+                    well = row % n_wells
+
+                    preds = []
+                    for c in train_conditions:
+                        cond_data = np.asarray(training_data[c], dtype=float)
+
+                        # all FoVs corresponding to this well
+                        rows_for_well = [well + f * n_wells for f in range(this_n_fovs)]
+                        well_vals = cond_data[rows_for_well, :]
+
+                        preds.append(np.nanmean(well_vals, axis=0))
+
+                    # average across training conditions
+                    y_pred_within[j] = np.nanmean(preds, axis=0)
+
+                y_pred_within_all.append(y_pred_within)
+
+        # concatenate all held-out predictions
+        y_true_all = np.vstack(y_true_all)
+        y_pred_ridge_all = np.vstack(y_pred_ridge_all)
+
+        # --------------------
+        # Ridge metrics
+        # --------------------
+        results["ridge"]["overall_r2"][i] = r2_score(y_true_all, y_pred_ridge_all)
+        results["ridge"]["rmse"][i] = np.sqrt(mean_squared_error(y_true_all, y_pred_ridge_all))
+        results["ridge"]["r2_per_feature"][i, :] = np.array([
+            r2_score(y_true_all[:, j], y_pred_ridge_all[:, j])
+            for j in range(n_features)
+        ])
+
+        # --------------------
+        # Global mean metrics
+        # --------------------
+        if include_global_mean:
+            y_pred_global_all = np.vstack(y_pred_global_all)
+            results["global_mean"]["overall_r2"][i] = r2_score(y_true_all, y_pred_global_all)
+            results["global_mean"]["rmse"][i] = np.sqrt(mean_squared_error(y_true_all, y_pred_global_all))
+            results["global_mean"]["r2_per_feature"][i, :] = np.array([
+                r2_score(y_true_all[:, j], y_pred_global_all[:, j])
+                for j in range(n_features)
+            ])
+
+        # --------------------
+        # Within-strain mean metrics
+        # --------------------
+        if include_within_strain_mean:
+            y_pred_within_all = np.vstack(y_pred_within_all)
+            results["within_strain_mean"]["overall_r2"][i] = r2_score(y_true_all, y_pred_within_all)
+            results["within_strain_mean"]["rmse"][i] = np.sqrt(mean_squared_error(y_true_all, y_pred_within_all))
+            results["within_strain_mean"]["r2_per_feature"][i, :] = np.array([
+                r2_score(y_true_all[:, j], y_pred_within_all[:, j])
                 for j in range(n_features)
             ])
 
@@ -4775,7 +5062,7 @@ def plot_global_strain_outlier_scores(
 
     plot_df = outlier_df.head(top_n).copy()
 
-    labels = [f"well_{w}" for w in plot_df["well"].tolist()]
+    labels = [f"strain_{w}" for w in plot_df["well"].tolist()]
     vals = plot_df[score_column].to_numpy()
     pos = np.arange(len(labels))
 
@@ -5063,7 +5350,7 @@ def plot_strain_response_outlier_scores(
 
     plot_df = outlier_df.head(top_n).copy()
 
-    labels = [f"well_{w}" for w in plot_df["well"].tolist()]
+    labels = [f"strain_{w}" for w in plot_df["well"].tolist()]
     vals = plot_df[score_column].to_numpy()
     pos = np.arange(len(labels))
 
@@ -5218,7 +5505,7 @@ def plot_global_vs_response_outlier_scores(
             ax.text(
                 row[global_score_col],
                 row[response_score_col],
-                f"well_{int(row['well'])}",
+                f"strain_{int(row['well'])}",
                 fontsize=annotation_fontsize,
                 fontfamily=font_family,
                 color=label_color
@@ -6003,3 +6290,1720 @@ def plot_fov_split_half_vs_null(
         fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".svg", bbox_inches="tight")
 
     return fig, ax
+
+def plot_condition_holdout_model_comparison(
+    comparison_results,
+    model_order=("ridge", "within_strain_mean", "global_mean"),
+    metric="overall_r2",   # "overall_r2" or "rmse"
+    col_titles=None,
+    xtick_colors=None,
+    plot_mode="line",      # "line" or "bar"
+    figsize=(8, 5),
+    model_colors=None,
+    linewidth=2.5,
+    marker="o",
+    markersize=7,
+    bar_width=0.24,
+    alpha=0.9,
+    show_values=False,
+    value_fontsize=None,
+    title=None,
+    show_title=True,
+    title_fontsize=18,
+    font_family=None,
+    font_size=10,
+    title_size=None,
+    xtick_rotation=45,
+    axis_color="black",
+    label_color="black",
+    zero_line=True,
+    zero_line_color="gray",
+    zero_line_style="--",
+    legend=True,
+    legend_loc="best",
+    save=False,
+    figtitle="condition_holdout_model_comparison",
+):
+    """
+    Plot held-out condition performance for multiple models.
+
+    Parameters
+    ----------
+    comparison_results : dict
+        Output from compare_models_condition_holdout_cv(...)
+    model_order : tuple/list[str]
+        Models to plot, in order.
+    metric : str
+        "overall_r2" or "rmse"
+    col_titles : list[str] or None
+        Display labels for conditions. If None, uses comparison_results conditions.
+    xtick_colors : list or None
+        Colors for x-axis condition labels.
+    plot_mode : str
+        "line" or "bar"
+    figsize : tuple
+        Figure size.
+    model_colors : dict or None
+        Mapping model_name -> color.
+    linewidth, marker, markersize, bar_width, alpha
+        Plot styling parameters.
+    show_values : bool
+        Whether to label points/bars with numeric values.
+    value_fontsize : int or None
+        Font size for value labels.
+    title : str or None
+        Plot title.
+    show_title : bool
+        Whether to show the title.
+    title_fontsize : int
+        Title font size.
+    font_family : str or None
+        Optional font family.
+    font_size : int
+        Base font size.
+    title_size : int or None
+        Title font size override.
+    xtick_rotation : int or float
+        Rotation for x tick labels.
+    axis_color : str
+        Axis / spine / tick mark color.
+    label_color : str
+        Default tick label color.
+    zero_line : bool
+        Whether to draw a horizontal zero line.
+    zero_line_color : str
+        Color of zero line.
+    zero_line_style : str
+        Linestyle of zero line.
+    legend : bool
+        Whether to show legend.
+    legend_loc : str
+        Legend location.
+    save : bool
+        Whether to save png/pdf/svg.
+    figtitle : str
+        Root filename for saved figure.
+
+    Returns
+    -------
+    fig, ax, plot_df
+    """
+
+    # ----------------------------
+    # validate model names
+    # ----------------------------
+    for model_name in model_order:
+        if model_name not in comparison_results:
+            raise ValueError(f"{model_name} not found in comparison_results")
+
+    conditions = comparison_results[model_order[0]]["conditions"]
+
+    if col_titles is None:
+        col_titles = conditions
+
+    if len(col_titles) != len(conditions):
+        raise ValueError("col_titles length mismatch")
+
+    if xtick_colors is not None and len(xtick_colors) != len(conditions):
+        raise ValueError("xtick_colors length mismatch")
+
+    if metric not in ("overall_r2", "rmse"):
+        raise ValueError("metric must be 'overall_r2' or 'rmse'")
+
+    if model_colors is None:
+        model_colors = {
+            "ridge": apc.aster,
+            "within_strain_mean": apc.vital,
+            "global_mean": apc.lapis,
+        }
+
+    if value_fontsize is None:
+        value_fontsize = font_size
+
+    # ----------------------------
+    # build plotting dataframe
+    # ----------------------------
+    plot_df = pd.DataFrame(
+        {m: np.asarray(comparison_results[m][metric], dtype=float) for m in model_order},
+        index=conditions
+    )
+
+    # ----------------------------
+    # create plot
+    # ----------------------------
+    x = np.arange(len(conditions))
+    fig, ax = plt.subplots(figsize=figsize)
+
+    if plot_mode == "line":
+        for model_name in model_order:
+            vals = plot_df[model_name].to_numpy()
+            ax.plot(
+                x,
+                vals,
+                marker=marker,
+                markersize=markersize,
+                linewidth=linewidth,
+                alpha=alpha,
+                color=model_colors.get(model_name, None),
+                label=model_name
+            )
+
+            if show_values:
+                for xi, yi in zip(x, vals):
+                    ax.text(
+                        xi,
+                        yi,
+                        f"{yi:.2f}",
+                        fontsize=value_fontsize,
+                        fontfamily=font_family,
+                        color=label_color,
+                        ha="center",
+                        va="bottom"
+                    )
+
+    elif plot_mode == "bar":
+        n_models = len(model_order)
+        offsets = np.linspace(
+            -bar_width * (n_models - 1) / 2,
+             bar_width * (n_models - 1) / 2,
+             n_models
+        )
+
+        for offset, model_name in zip(offsets, model_order):
+            vals = plot_df[model_name].to_numpy()
+            bars = ax.bar(
+                x + offset,
+                vals,
+                width=bar_width,
+                alpha=alpha,
+                color=model_colors.get(model_name, None),
+                label=model_name
+            )
+
+            if show_values:
+                for rect, yi in zip(bars, vals):
+                    ax.text(
+                        rect.get_x() + rect.get_width() / 2,
+                        yi,
+                        f"{yi:.2f}",
+                        fontsize=value_fontsize,
+                        fontfamily=font_family,
+                        color=label_color,
+                        ha="center",
+                        va="bottom" if yi >= 0 else "top"
+                    )
+
+    else:
+        raise ValueError("plot_mode must be 'line' or 'bar'")
+
+    # ----------------------------
+    # axes / labels
+    # ----------------------------
+    ax.set_xticks(x)
+    ax.set_xticklabels(col_titles, rotation=xtick_rotation, ha="right")
+
+    if metric == "overall_r2":
+        ylabel = "Held-out condition R²"
+    else:
+        ylabel = "Held-out condition RMSE"
+
+    ax.set_ylabel(ylabel)
+
+    if zero_line:
+        ax.axhline(0, color=zero_line_color, linestyle=zero_line_style, linewidth=1)
+
+    if show_title:
+        if title is None:
+            if metric == "overall_r2":
+                title = "Held-out condition prediction performance"
+            else:
+                title = "Held-out condition prediction error"
+        ax.set_title(
+            title,
+            fontsize=title_size or title_fontsize,
+            fontfamily=font_family
+        )
+
+    if legend:
+        leg = ax.legend(loc=legend_loc, frameon=False)
+        if font_family is not None:
+            for text in leg.get_texts():
+                text.set_fontfamily(font_family)
+                text.set_fontsize(font_size)
+        else:
+            for text in leg.get_texts():
+                text.set_fontsize(font_size)
+
+    # ----------------------------
+    # styling
+    # ----------------------------
+    for spine in ax.spines.values():
+        spine.set_color(axis_color)
+
+    ax.tick_params(axis="x", colors=axis_color)
+    ax.tick_params(axis="y", colors=axis_color)
+
+    for tick in ax.get_xticklabels():
+        tick.set_color(label_color)
+    for tick in ax.get_yticklabels():
+        tick.set_color(label_color)
+
+    if xtick_colors is not None:
+        for tick, c in zip(ax.get_xticklabels(), xtick_colors):
+            tick.set_color(c)
+
+    if font_family is not None:
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontfamily(font_family)
+            label.set_fontsize(font_size)
+        ax.xaxis.label.set_fontfamily(font_family)
+        ax.yaxis.label.set_fontfamily(font_family)
+    else:
+        ax.tick_params(labelsize=font_size)
+
+    ax.xaxis.label.set_size(font_size)
+    ax.yaxis.label.set_size(font_size)
+
+    plt.tight_layout()
+    plt.show()
+
+    if save:
+        fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".png", bbox_inches="tight")
+        fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".pdf", bbox_inches="tight")
+        fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".svg", bbox_inches="tight")
+
+    return fig, ax, plot_df
+
+def compute_strain_distance_matrix(
+    training_data,
+    condition_order=None,
+    n_wells=96,
+    n_fovs=None,
+    dead_ids=None,
+    mode="all_conditions",   # "all_conditions" or "single_condition"
+    condition=None,
+    distance_metric="euclidean",   # "euclidean", "cosine", or "correlation"
+    zscore_within_condition=True,
+    return_feature_matrix=False,
+):
+    """
+    Compute a strain x strain distance matrix.
+
+    Parameters
+    ----------
+    training_data : dict[str, np.ndarray]
+        Dict mapping condition -> array of shape (n_rows, n_features).
+        Usually training_data_finite.
+    condition_order : list[str] or None
+        Order of conditions to use. If None, uses training_data.keys().
+    n_wells : int
+        Number of wells.
+    n_fovs : int or None
+        Number of FoVs per well. If None, inferred from row count.
+    dead_ids : list[int] or None
+        Expanded dead row indices. Used to infer dead wells to exclude.
+    mode : str
+        "all_conditions" -> concatenate strain means across all conditions
+        "single_condition" -> use only one condition
+    condition : str or None
+        Required if mode="single_condition".
+    distance_metric : str
+        "euclidean", "cosine", or "correlation"
+    zscore_within_condition : bool
+        If True, z-score strain means within each condition before concatenating.
+    return_feature_matrix : bool
+        If True, also return the strain x feature matrix used for distance calculation.
+
+    Returns
+    -------
+    distance_df : pd.DataFrame
+        Strain x strain distance matrix.
+    feature_matrix_df : pd.DataFrame (optional)
+        Strain x feature matrix used to compute distances.
+    """
+
+    if condition_order is None:
+        condition_order = list(training_data.keys())
+
+    if dead_ids is None:
+        dead_ids = []
+
+    dead_wells = sorted(set([d % n_wells for d in dead_ids]))
+    valid_wells = [w for w in range(n_wells) if w not in dead_wells]
+
+    if len(valid_wells) == 0:
+        raise ValueError("No valid wells found after excluding dead wells.")
+
+    if mode not in ("all_conditions", "single_condition"):
+        raise ValueError("mode must be 'all_conditions' or 'single_condition'")
+
+    if mode == "single_condition":
+        if condition is None:
+            raise ValueError("condition must be provided when mode='single_condition'")
+        if condition not in training_data:
+            raise ValueError(f"{condition} not found in training_data")
+        conditions_to_use = [condition]
+    else:
+        conditions_to_use = condition_order
+
+    per_condition_strain_means = {}
+
+    for cond in conditions_to_use:
+        dat = np.asarray(training_data[cond], dtype=float)
+        n_rows, n_features = dat.shape
+
+        if n_fovs is None:
+            this_n_fovs = n_rows // n_wells
+        else:
+            this_n_fovs = n_fovs
+
+        strain_means = []
+        strain_ids_used = []
+
+        for well in valid_wells:
+            row_idx = [well + (fov * n_wells) for fov in range(this_n_fovs)]
+            block = dat[row_idx, :]
+
+            if np.all(~np.isfinite(block)):
+                continue
+
+            mean_vec = np.nanmean(block, axis=0)
+
+            if not np.any(np.isfinite(mean_vec)):
+                continue
+
+            strain_means.append(mean_vec)
+            strain_ids_used.append(well)
+
+        if len(strain_means) == 0:
+            raise ValueError(f"No valid strain means found for condition {cond}")
+
+        strain_means = np.vstack(strain_means)
+
+        if zscore_within_condition:
+            strain_means = zscore(strain_means, axis=0, nan_policy="omit")
+            strain_means = np.where(np.isfinite(strain_means), strain_means, 0.0)
+
+        per_condition_strain_means[cond] = pd.DataFrame(
+            strain_means,
+            index=strain_ids_used
+        )
+
+    # keep only wells present in all conditions used
+    common_wells = set(valid_wells)
+    for cond in conditions_to_use:
+        common_wells = common_wells.intersection(set(per_condition_strain_means[cond].index))
+    common_wells = sorted(common_wells)
+
+    if len(common_wells) == 0:
+        raise ValueError("No common wells found across selected conditions.")
+
+    # build final strain x feature matrix
+    feature_matrix = []
+    for well in common_wells:
+        pieces = []
+        for cond in conditions_to_use:
+            pieces.append(per_condition_strain_means[cond].loc[well].to_numpy(dtype=float))
+        feature_matrix.append(np.concatenate(pieces))
+
+    feature_matrix = np.vstack(feature_matrix)
+
+    # compute pairwise distances
+    if distance_metric == "euclidean":
+        dist_mat = squareform(pdist(feature_matrix, metric="euclidean"))
+    elif distance_metric == "cosine":
+        dist_mat = squareform(pdist(feature_matrix, metric="cosine"))
+    elif distance_metric == "correlation":
+        dist_mat = squareform(pdist(feature_matrix, metric="correlation"))
+    else:
+        raise ValueError("distance_metric must be 'euclidean', 'cosine', or 'correlation'")
+
+    strain_labels = [f"well_{w}" for w in common_wells]
+
+    distance_df = pd.DataFrame(
+        dist_mat,
+        index=strain_labels,
+        columns=strain_labels
+    )
+
+    if return_feature_matrix:
+        feature_matrix_df = pd.DataFrame(feature_matrix, index=strain_labels)
+        feature_matrix_df.index.name = "strain"
+        return distance_df, feature_matrix_df
+
+    return distance_df
+
+def plot_strain_distance_heatmap(
+    distance_df,
+    figsize=(10, 8),
+    cmap="apc:orange_sage_r",
+    cluster=False,
+    title="Strain-to-strain phenotypic distance",
+    show_title=True,
+    title_fontsize=18,
+    font_family=None,
+    font_size=8,
+    title_size=None,
+    xtick_fontsize=None,
+    ytick_fontsize=None,
+    xtick_rotation=90,
+    ytick_rotation=0,
+    axis_color="black",
+    label_color="black",
+    cbar=True,
+    cbar_label="distance",
+    cbar_shrink=1.0,
+    cbar_aspect=30,
+    vmin=None,
+    vmax=None,
+    save=False,
+    figtitle="strain_distance_heatmap",
+):
+    """
+    Plot a strain x strain distance heatmap.
+
+    Parameters
+    ----------
+    distance_df : pd.DataFrame
+        Output from compute_strain_distance_matrix(...)
+    cluster : bool
+        If True, reorder rows/columns by hierarchical clustering.
+    """
+
+    if xtick_fontsize is None:
+        xtick_fontsize = font_size
+    if ytick_fontsize is None:
+        ytick_fontsize = font_size
+
+    plot_df = distance_df.copy()
+
+    if cluster:
+        # cluster using linkage on the distance matrix rows
+        linkage_mat = linkage(plot_df.values, method="average")
+        order = leaves_list(linkage_mat)
+        plot_df = plot_df.iloc[order, order]
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    hm = sns.heatmap(
+        plot_df,
+        cmap=cmap,
+        cbar=cbar,
+        vmin=vmin,
+        vmax=vmax,
+        ax=ax,
+        cbar_kws={
+            "shrink": cbar_shrink,
+            "aspect": cbar_aspect
+        } if cbar else None
+    )
+
+    if cbar and cbar_label is not None:
+        hm.collections[0].colorbar.set_label(
+            cbar_label,
+            fontsize=font_size,
+            fontfamily=font_family
+        )
+
+    if show_title:
+        ax.set_title(
+            title,
+            fontsize=title_size or title_fontsize,
+            fontfamily=font_family
+        )
+
+    ax.set_xticklabels(
+        ax.get_xticklabels(),
+        rotation=xtick_rotation,
+        ha="right" if xtick_rotation != 0 else "center",
+        rotation_mode="anchor",
+        fontsize=xtick_fontsize,
+        fontfamily=font_family
+    )
+
+    ax.set_yticklabels(
+        ax.get_yticklabels(),
+        rotation=ytick_rotation,
+        fontsize=ytick_fontsize,
+        fontfamily=font_family
+    )
+
+    for tick in ax.get_xticklabels():
+        tick.set_color(label_color)
+    for tick in ax.get_yticklabels():
+        tick.set_color(label_color)
+
+    for spine in ax.spines.values():
+        spine.set_color(axis_color)
+
+    ax.tick_params(axis="x", color=axis_color)
+    ax.tick_params(axis="y", color=axis_color)
+
+    plt.tight_layout()
+    plt.show()
+
+    if save:
+        fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".png", bbox_inches="tight")
+        fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".pdf", bbox_inches="tight")
+        fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".svg", bbox_inches="tight")
+
+    return fig, ax, plot_df
+
+def plot_strain_pca_trajectories(
+    training_data,
+    exp_conditions,
+    strains_to_plot,
+    n_wells=96,
+    n_fovs=None,
+    dead_ids=None,
+    condition_labels=None,
+    condition_colors=None,
+    figsize=(8, 6),
+    title="Strain PCA trajectories across conditions",
+    show_title=True,
+    title_fontsize=16,
+    point_size=80,
+    line_width=2,
+    alpha=0.9,
+    annotate_points=True,
+    show_variance_explained=True,
+    fit_pca_on="all_strains",   # "all_strains" or "selected_strains"
+    pca_conditions=None,
+    save=False,
+    figtitle="strain_pca_trajectories"
+):
+    """
+    Plot PCA trajectories for selected strains across conditions.
+
+    Parameters
+    ----------
+    training_data : dict[str, np.ndarray]
+        Dict mapping condition -> array of shape (n_rows, n_features).
+    exp_conditions : list[str]
+        Conditions to plot, in trajectory order.
+    strains_to_plot : list[int]
+        Wells/strains to show.
+    n_wells : int
+        Number of wells.
+    n_fovs : int or None
+        Number of FoVs per well. If None, inferred from row count.
+    dead_ids : list[int] or None
+        Expanded dead row indices. Used to infer dead wells to exclude.
+    condition_labels : list[str] or None
+        Labels for legend. If None, uses exp_conditions.
+    condition_colors : list or None
+        One color per plotted condition.
+    figsize : tuple
+        Figure size.
+    title : str
+        Plot title.
+    show_title : bool
+        Whether to show title.
+    title_fontsize : int
+        Title fontsize.
+    point_size : float
+        Point size.
+    line_width : float
+        Trajectory line width.
+    alpha : float
+        Point/line alpha.
+    annotate_points : bool
+        Whether to write strain ID on each point.
+    show_variance_explained : bool
+        Whether to show variance explained in axis labels.
+    fit_pca_on : str
+        "all_strains" -> fit PCA on all valid strains from pca_conditions
+        "selected_strains" -> fit PCA only on selected strains from pca_conditions
+    pca_conditions : list[str] or None
+        Conditions used to fit PCA space. If None, uses all conditions in training_data.
+        This can be broader than exp_conditions.
+    save : bool
+        Whether to save figure.
+    figtitle : str
+        Root filename for saving.
+
+    Returns
+    -------
+    fig, ax
+    """
+
+    if dead_ids is None:
+        dead_ids = []
+
+    if condition_labels is None:
+        condition_labels = exp_conditions
+
+    if condition_colors is None:
+        condition_colors = [apc.vital, apc.wish, apc.dress,
+                            apc.lapis, apc.aster, apc.candy]
+
+    if len(condition_labels) != len(exp_conditions):
+        raise ValueError("condition_labels must match exp_conditions length")
+
+    if len(condition_colors) < len(exp_conditions):
+        raise ValueError("condition_colors must have at least as many entries as exp_conditions")
+
+    if fit_pca_on not in ("all_strains", "selected_strains"):
+        raise ValueError("fit_pca_on must be 'all_strains' or 'selected_strains'")
+
+    if pca_conditions is None:
+        pca_conditions = list(training_data.keys())
+
+    for cond in exp_conditions:
+        if cond not in training_data:
+            raise ValueError(f"{cond} not found in training_data")
+
+    for cond in pca_conditions:
+        if cond not in training_data:
+            raise ValueError(f"{cond} not found in training_data")
+
+    # ----------------------------
+    # Infer n_fovs
+    # ----------------------------
+    example = np.asarray(training_data[pca_conditions[0]], dtype=float)
+    if n_fovs is None:
+        n_fovs = example.shape[0] // n_wells
+
+    dead_wells = sorted(set([d % n_wells for d in dead_ids]))
+    valid_wells = [w for w in range(n_wells) if w not in dead_wells]
+
+    for s in strains_to_plot:
+        if s not in valid_wells:
+            raise ValueError(f"strain {s} is not a valid well (may be dead or out of range)")
+
+    # ----------------------------
+    # helper: mean vector for one strain in one condition
+    # ----------------------------
+    def _strain_condition_mean(cond, strain):
+        dat = np.asarray(training_data[cond], dtype=float)
+        rows = [strain + f * n_wells for f in range(n_fovs)]
+        return np.nanmean(dat[rows, :], axis=0)
+
+    # ----------------------------
+    # build matrix for PCA fitting
+    # ----------------------------
+    if fit_pca_on == "all_strains":
+        strains_for_pca = valid_wells
+    else:
+        strains_for_pca = list(strains_to_plot)
+
+    pca_vectors = []
+    for strain in strains_for_pca:
+        for cond in pca_conditions:
+            vec = _strain_condition_mean(cond, strain)
+            pca_vectors.append(vec)
+
+    pca_vectors = np.vstack(pca_vectors)
+
+    # ----------------------------
+    # fit PCA on chosen population / chosen PCA conditions
+    # ----------------------------
+    pcs_all, evecs, evals, mean_val = pca_on_np_array(pca_vectors)
+
+    var_explained = evals / np.sum(evals)
+    pc1_var = var_explained[0] * 100
+    pc2_var = var_explained[1] * 100
+
+    # ----------------------------
+    # build selected strain vectors ONLY for plotted conditions
+    # and project onto PCA basis fitted above
+    # ----------------------------
+    selected_vectors = []
+    for strain in strains_to_plot:
+        for cond in exp_conditions:
+            vec = _strain_condition_mean(cond, strain)
+            selected_vectors.append(vec)
+
+    selected_vectors = np.vstack(selected_vectors)
+
+    selected_pcs = np.dot(selected_vectors - mean_val, evecs)
+
+    # ----------------------------
+    # plot
+    # ----------------------------
+    fig, ax = plt.subplots(figsize=figsize)
+
+    idx = 0
+    for strain in strains_to_plot:
+        traj = []
+
+        for _ in range(len(exp_conditions)):
+            traj.append(selected_pcs[idx])
+            idx += 1
+
+        traj = np.array(traj)
+
+        ax.plot(
+            traj[:, 0],
+            traj[:, 1],
+            linewidth=line_width,
+            alpha=alpha,
+            color="black",
+            zorder=1
+        )
+
+        for i in range(len(exp_conditions)):
+            ax.scatter(
+                traj[i, 0],
+                traj[i, 1],
+                s=point_size,
+                color=condition_colors[i],
+                alpha=alpha,
+                edgecolor="black",
+                zorder=2
+            )
+
+            if annotate_points:
+                ax.text(
+                    traj[i, 0],
+                    traj[i, 1],
+                    f"{strain}",
+                    fontsize=10,
+                    ha="center",
+                    va="center"
+                )
+
+    # ----------------------------
+    # labels
+    # ----------------------------
+    if show_variance_explained:
+        ax.set_xlabel(f"PC1 ({pc1_var:.1f}%)")
+        ax.set_ylabel(f"PC2 ({pc2_var:.1f}%)")
+    else:
+        ax.set_xlabel("PC1")
+        ax.set_ylabel("PC2")
+
+    if show_title:
+        ax.set_title(title, fontsize=title_fontsize)
+
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    for i, label in enumerate(condition_labels):
+        ax.scatter([], [], color=condition_colors[i], label=label)
+
+    ax.legend(title="Condition", loc="best")
+
+    plt.tight_layout()
+    plt.show()
+
+    if save:
+        fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".png", bbox_inches="tight")
+        fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".pdf", bbox_inches="tight")
+        fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".svg", bbox_inches="tight")
+
+    return fig, ax
+
+def find_feature_extremes(
+    zroots,
+    feature_name,
+    channel="BF",
+    exp_conditions=None,
+    condition_labels=None,
+    n_wells=96,
+    n_fovs=9,
+    dead_ids=None,
+    exclude_features=None,
+    top_n_strains=8,
+    top_n_cells=12,
+    abs_value=False,
+    strain_summary_method="mean_of_fov_means",  # "mean_of_fov_means" or "mean_of_all_cells"
+):
+    """
+    Find high/low examples for a given feature at both the strain level and cell level.
+
+    Returns
+    -------
+    results : dict with keys
+        "feature_name"
+        "channel"
+        "all_strain_values_df"
+        "top_strains_df"
+        "bottom_strains_df"
+        "all_cells_df"
+        "top_cells_df"
+        "bottom_cells_df"
+
+    Notes
+    -----
+    - Strain-level values are computed per condition and well.
+    - Cell-level values are computed per individual cell row in get_cell_properties(...).
+    - For cell-level output, the key locator fields are:
+        condition_idx, condition_label, well, fov, cell_row_in_props
+      so you can later recover/crop the corresponding cell manually.
+    """
+
+    if dead_ids is None:
+        dead_ids = []
+
+    if exclude_features is None:
+        exclude_features = []
+
+    if exp_conditions is None:
+        exp_conditions = list(range(len(zroots)))
+
+    if condition_labels is None:
+        condition_labels = [str(x) for x in exp_conditions]
+
+    if len(condition_labels) != len(exp_conditions):
+        raise ValueError("condition_labels must match exp_conditions length")
+
+    dead_wells = sorted(set([d % n_wells for d in dead_ids]))
+    valid_wells = [w for w in range(n_wells) if w not in dead_wells]
+
+    # ----------------------------
+    # Validate feature exists
+    # ----------------------------
+    feature_exists = False
+    checked_any = False
+
+    for exp_idx in exp_conditions:
+        z = zroots[exp_idx]
+        for fov in range(n_fovs):
+            for well in valid_wells[: min(len(valid_wells), 5)]:
+                props = z.get_cell_properties(fov, well, channel)
+                if props is None or len(props) == 0:
+                    continue
+                checked_any = True
+                cols = props.columns.tolist()
+                if len(cols) > 0 and cols[0] == "label":
+                    cols[0] = "count"
+                if feature_name in cols:
+                    feature_exists = True
+                    break
+            if feature_exists:
+                break
+        if feature_exists:
+            break
+
+    if not checked_any:
+        raise ValueError("Could not inspect any non-empty feature tables to validate feature_name.")
+
+    if not feature_exists:
+        raise ValueError(
+            f"Feature '{feature_name}' was not found in get_cell_properties(...). "
+            f"Make sure it matches the dataframe column name exactly."
+        )
+
+    if feature_name in exclude_features:
+        raise ValueError(f"Feature '{feature_name}' is in exclude_features.")
+
+    # ----------------------------
+    # Collect strain-level values
+    # ----------------------------
+    strain_rows = []
+    cell_rows = []
+
+    for exp_idx, cond_label in zip(exp_conditions, condition_labels):
+        z = zroots[exp_idx]
+
+        for well in valid_wells:
+            per_fov_means = []
+            pooled_cell_values = []
+
+            for fov in range(n_fovs):
+                props = z.get_cell_properties(fov, well, channel)
+
+                if props is None or len(props) == 0:
+                    continue
+
+                props = props.copy()
+                cols = props.columns.tolist()
+                if len(cols) > 0 and cols[0] == "label":
+                    cols[0] = "count"
+                    props.columns = cols
+
+                if feature_name not in props.columns:
+                    continue
+
+                vals = pd.to_numeric(props[feature_name], errors="coerce").to_numpy(dtype=float)
+                vals = vals[np.isfinite(vals)]
+
+                if len(vals) == 0:
+                    continue
+
+                if abs_value:
+                    vals = np.abs(vals)
+
+                # cell-level records
+                full_vals = pd.to_numeric(props[feature_name], errors="coerce").to_numpy(dtype=float)
+                for row_idx, v in enumerate(full_vals):
+                    if not np.isfinite(v):
+                        continue
+                    if abs_value:
+                        v = abs(v)
+
+                    cell_rows.append({
+                        "feature": feature_name,
+                        "channel": channel,
+                        "condition_idx": exp_idx,
+                        "condition_label": cond_label,
+                        "well": well,
+                        "fov": fov,
+                        "cell_row_in_props": row_idx,
+                        "feature_value": float(v),
+                    })
+
+                per_fov_means.append(np.nanmean(vals))
+                pooled_cell_values.extend(vals.tolist())
+
+            # summarize one strain in one condition
+            if len(per_fov_means) == 0 and len(pooled_cell_values) == 0:
+                continue
+
+            if strain_summary_method == "mean_of_fov_means":
+                strain_val = float(np.nanmean(per_fov_means))
+            elif strain_summary_method == "mean_of_all_cells":
+                strain_val = float(np.nanmean(pooled_cell_values))
+            else:
+                raise ValueError(
+                    "strain_summary_method must be 'mean_of_fov_means' or 'mean_of_all_cells'"
+                )
+
+            strain_rows.append({
+                "feature": feature_name,
+                "channel": channel,
+                "condition_idx": exp_idx,
+                "condition_label": cond_label,
+                "well": well,
+                "feature_value": strain_val,
+                "n_fovs_used": len(per_fov_means),
+                "n_cells_used": len(pooled_cell_values),
+            })
+
+    if len(strain_rows) == 0:
+        raise ValueError("No valid strain-level values were collected.")
+
+    if len(cell_rows) == 0:
+        raise ValueError("No valid cell-level values were collected.")
+
+    all_strain_values_df = pd.DataFrame(strain_rows)
+    all_cells_df = pd.DataFrame(cell_rows)
+
+    # ----------------------------
+    # Top / bottom strain examples
+    # ----------------------------
+    top_strains_df = (
+        all_strain_values_df
+        .sort_values("feature_value", ascending=False)
+        .head(top_n_strains)
+        .reset_index(drop=True)
+    )
+
+    bottom_strains_df = (
+        all_strain_values_df
+        .sort_values("feature_value", ascending=True)
+        .head(top_n_strains)
+        .reset_index(drop=True)
+    )
+
+    # ----------------------------
+    # Top / bottom cell examples
+    # ----------------------------
+    top_cells_df = (
+        all_cells_df
+        .sort_values("feature_value", ascending=False)
+        .head(top_n_cells)
+        .reset_index(drop=True)
+    )
+
+    bottom_cells_df = (
+        all_cells_df
+        .sort_values("feature_value", ascending=True)
+        .head(top_n_cells)
+        .reset_index(drop=True)
+    )
+
+    results = {
+        "feature_name": feature_name,
+        "channel": channel,
+        "all_strain_values_df": all_strain_values_df,
+        "top_strains_df": top_strains_df,
+        "bottom_strains_df": bottom_strains_df,
+        "all_cells_df": all_cells_df,
+        "top_cells_df": top_cells_df,
+        "bottom_cells_df": bottom_cells_df,
+    }
+
+    return results
+
+def plot_feature_extreme_strains(
+    feature_extremes_result,
+    top_n=6,
+    figsize=(10, 5),
+    high_color=apc.aster,
+    low_color=apc.lapis,
+    title=None,
+    show_title=True,
+    title_fontsize=18,
+    font_family=None,
+    font_size=10,
+    title_size=None,
+    rotation=45,
+    axis_color="black",
+    label_color="black",
+    save=False,
+    figtitle="feature_extreme_strains",
+):
+    """
+    Plot top and bottom strain-level examples for a selected feature.
+
+    Input should be the output dict from find_feature_extremes(...).
+    """
+
+    top_df = feature_extremes_result["top_strains_df"].head(top_n).copy()
+    bottom_df = feature_extremes_result["bottom_strains_df"].head(top_n).copy()
+    feature_name = feature_extremes_result["feature_name"]
+    channel = feature_extremes_result["channel"]
+
+    plot_df = pd.concat([
+        bottom_df.assign(group="low"),
+        top_df.assign(group="high")
+    ], axis=0).reset_index(drop=True)
+
+    labels = [
+        f"{row['condition_label']}\nwell_{int(row['well'])}"
+        for _, row in plot_df.iterrows()
+    ]
+    vals = plot_df["feature_value"].to_numpy()
+    colors = [low_color if g == "low" else high_color for g in plot_df["group"]]
+    pos = np.arange(len(plot_df))
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.bar(pos, vals, color=colors)
+
+    ax.set_xticks(pos)
+    ax.set_xticklabels(labels, rotation=rotation, ha="right")
+
+    ax.set_ylabel(feature_name)
+
+    if show_title:
+        if title is None:
+            title = f"High and low strain examples | {feature_name} ({channel})"
+        ax.set_title(
+            title,
+            fontsize=title_size or title_fontsize,
+            fontfamily=font_family
+        )
+
+    for spine in ax.spines.values():
+        spine.set_color(axis_color)
+
+    ax.tick_params(axis="x", colors=axis_color)
+    ax.tick_params(axis="y", colors=axis_color)
+
+    for tick in ax.get_xticklabels():
+        tick.set_color(label_color)
+    for tick in ax.get_yticklabels():
+        tick.set_color(label_color)
+
+    if font_family is not None:
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontfamily(font_family)
+            label.set_fontsize(font_size)
+        ax.xaxis.label.set_fontfamily(font_family)
+        ax.yaxis.label.set_fontfamily(font_family)
+    else:
+        ax.tick_params(labelsize=font_size)
+
+    ax.xaxis.label.set_size(font_size)
+    ax.yaxis.label.set_size(font_size)
+
+    plt.tight_layout()
+    plt.show()
+
+    if save:
+        fig.savefig("plots/" + figtitle + ".png", bbox_inches="tight")
+        fig.savefig("plots/" + figtitle + ".pdf", bbox_inches="tight")
+        fig.savefig("plots/" + figtitle + ".svg", bbox_inches="tight")
+
+    return fig, ax, plot_df
+
+def compute_feature_covariation_matrix(
+    zroots,
+    channel="BF",
+    exp_conditions=None,
+    condition_labels=None,
+    n_wells=96,
+    n_fovs=9,
+    dead_ids=None,
+    include_pixel_intensity=True,
+    exclude_features=None,
+    summary_level="strain",   # "strain" or "fov"
+    summary_method="mean",    # "mean" or "median"
+    correlation_method="pearson",   # "pearson" or "spearman"
+    abs_value_features=None,
+    zscore_within_condition=False,
+    return_feature_table=False,
+):
+    """
+    Compute a feature-feature covariation matrix from summarized phenotypes.
+
+    Parameters
+    ----------
+    zroots : list
+        List of ExperimentStore-like objects.
+    channel : str
+        Channel to read from, usually "BF" or "CY5".
+    exp_conditions : list[int] or None
+        Indices into zroots to use. If None, uses all.
+    condition_labels : list[str] or None
+        Human-readable labels for conditions. If None, uses string versions of exp_conditions.
+    n_wells : int
+        Number of wells.
+    n_fovs : int
+        Number of FoVs per well.
+    dead_ids : list[int] or None
+        Expanded dead row ids. Converted to dead wells internally.
+    include_pixel_intensity : bool
+        Whether to append pixel_intensity as a feature.
+    exclude_features : list[str] or None
+        Base feature names to exclude, e.g. ["moments_hu-4", "moments_hu-5", "moments_hu-6"]
+    summary_level : str
+        "strain" -> one row per condition × well
+        "fov"    -> one row per condition × well × fov
+    summary_method : str
+        "mean" or "median" over cells
+    correlation_method : str
+        "pearson" or "spearman"
+    abs_value_features : list[str] or None
+        Base feature names for which absolute values should be taken before summarizing.
+    zscore_within_condition : bool
+        If True, z-score each feature within each condition after summarization.
+    return_feature_table : bool
+        If True, also return the summarized feature table used for the matrix.
+
+    Returns
+    -------
+    corr_df : pd.DataFrame
+        Feature-feature correlation matrix.
+    feature_table_df : pd.DataFrame (optional)
+        Table used to compute the matrix.
+    """
+
+    if dead_ids is None:
+        dead_ids = []
+
+    if exclude_features is None:
+        exclude_features = []
+
+    if abs_value_features is None:
+        abs_value_features = []
+
+    if exp_conditions is None:
+        exp_conditions = list(range(len(zroots)))
+
+    if condition_labels is None:
+        condition_labels = [str(c) for c in exp_conditions]
+
+    if len(condition_labels) != len(exp_conditions):
+        raise ValueError("condition_labels must match exp_conditions length")
+
+    if summary_level not in ("strain", "fov"):
+        raise ValueError("summary_level must be 'strain' or 'fov'")
+
+    if summary_method not in ("mean", "median"):
+        raise ValueError("summary_method must be 'mean' or 'median'")
+
+    if correlation_method not in ("pearson", "spearman"):
+        raise ValueError("correlation_method must be 'pearson' or 'spearman'")
+
+    dead_wells = sorted(set([d % n_wells for d in dead_ids]))
+    valid_wells = [w for w in range(n_wells) if w not in dead_wells]
+
+    # ----------------------------
+    # determine base feature names
+    # ----------------------------
+    reference_props = None
+    for exp_idx in exp_conditions:
+        z = zroots[exp_idx]
+        found = False
+        for fov in range(n_fovs):
+            for well in valid_wells[: min(10, len(valid_wells))]:
+                props = z.get_cell_properties(fov, well, channel)
+                if props is not None and len(props) > 0:
+                    reference_props = props.copy()
+                    found = True
+                    break
+            if found:
+                break
+        if found:
+            break
+
+    if reference_props is None or len(reference_props) == 0:
+        raise ValueError("Could not determine feature names from get_cell_properties(...)")
+
+    feature_names = reference_props.columns.tolist()
+    if len(feature_names) > 0 and feature_names[0] == "label":
+        feature_names[0] = "count"
+
+    feature_names = [f for f in feature_names if f not in exclude_features]
+
+    # ----------------------------
+    # helper
+    # ----------------------------
+    def _summarize_vector(vals, method="mean"):
+        vals = np.asarray(vals, dtype=float)
+        vals = vals[np.isfinite(vals)]
+        if len(vals) == 0:
+            return np.nan
+        if method == "mean":
+            return float(np.nanmean(vals))
+        return float(np.nanmedian(vals))
+
+    rows = []
+
+    # ----------------------------
+    # collect summaries
+    # ----------------------------
+    for exp_idx, cond_label in zip(exp_conditions, condition_labels):
+        z = zroots[exp_idx]
+
+        for well in valid_wells:
+            if summary_level == "strain":
+                per_fov_feature_vectors = []
+                per_fov_pixel_vals = []
+
+                for fov in range(n_fovs):
+                    props = z.get_cell_properties(fov, well, channel)
+
+                    if props is None or len(props) == 0:
+                        continue
+
+                    props = props.copy()
+                    cols = props.columns.tolist()
+                    if len(cols) > 0 and cols[0] == "label":
+                        cols[0] = "count"
+                        props.columns = cols
+
+                    if not all(f in props.columns for f in feature_names):
+                        continue
+
+                    feature_vec = []
+                    for fname in feature_names:
+                        vals = pd.to_numeric(props[fname], errors="coerce").to_numpy(dtype=float)
+                        if fname in abs_value_features:
+                            vals = np.abs(vals)
+                        feature_vec.append(_summarize_vector(vals, method=summary_method))
+
+                    per_fov_feature_vectors.append(feature_vec)
+
+                    if include_pixel_intensity:
+                        try:
+                            label_arr = z.get_label_image(fov, well, channel)
+                            mask = label_arr != 0
+                            img = z.get_processed_intensities(fov, well, channel)
+                            pix_vals = img[mask]
+                            pix_vals = np.asarray(pix_vals, dtype=float)
+                            pix_vals = pix_vals[np.isfinite(pix_vals)]
+                            per_fov_pixel_vals.append(_summarize_vector(pix_vals, method=summary_method))
+                        except Exception:
+                            per_fov_pixel_vals.append(np.nan)
+
+                if len(per_fov_feature_vectors) == 0:
+                    continue
+
+                per_fov_feature_vectors = np.asarray(per_fov_feature_vectors, dtype=float)
+
+                row = {
+                    "condition_idx": exp_idx,
+                    "condition_label": cond_label,
+                    "well": well,
+                }
+
+                for i, fname in enumerate(feature_names):
+                    row[f"{fname} ({channel.lower()})"] = _summarize_vector(
+                        per_fov_feature_vectors[:, i],
+                        method=summary_method
+                    )
+
+                if include_pixel_intensity:
+                    row[f"pixel_intensity ({channel.lower()})"] = _summarize_vector(
+                        per_fov_pixel_vals,
+                        method=summary_method
+                    )
+
+                rows.append(row)
+
+            else:  # summary_level == "fov"
+                for fov in range(n_fovs):
+                    props = z.get_cell_properties(fov, well, channel)
+
+                    if props is None or len(props) == 0:
+                        continue
+
+                    props = props.copy()
+                    cols = props.columns.tolist()
+                    if len(cols) > 0 and cols[0] == "label":
+                        cols[0] = "count"
+                        props.columns = cols
+
+                    if not all(f in props.columns for f in feature_names):
+                        continue
+
+                    row = {
+                        "condition_idx": exp_idx,
+                        "condition_label": cond_label,
+                        "well": well,
+                        "fov": fov,
+                    }
+
+                    for fname in feature_names:
+                        vals = pd.to_numeric(props[fname], errors="coerce").to_numpy(dtype=float)
+                        if fname in abs_value_features:
+                            vals = np.abs(vals)
+                        row[f"{fname} ({channel.lower()})"] = _summarize_vector(vals, method=summary_method)
+
+                    if include_pixel_intensity:
+                        try:
+                            label_arr = z.get_label_image(fov, well, channel)
+                            mask = label_arr != 0
+                            img = z.get_processed_intensities(fov, well, channel)
+                            pix_vals = img[mask]
+                            pix_vals = np.asarray(pix_vals, dtype=float)
+                            pix_vals = pix_vals[np.isfinite(pix_vals)]
+                            row[f"pixel_intensity ({channel.lower()})"] = _summarize_vector(
+                                pix_vals, method=summary_method
+                            )
+                        except Exception:
+                            row[f"pixel_intensity ({channel.lower()})"] = np.nan
+
+                    rows.append(row)
+
+    if len(rows) == 0:
+        raise ValueError("No summarized feature rows were generated.")
+
+    feature_table_df = pd.DataFrame(rows)
+
+    metadata_cols = ["condition_idx", "condition_label", "well", "fov"]
+    feature_cols = [c for c in feature_table_df.columns if c not in metadata_cols]
+
+    # optional z-score within each condition
+    if zscore_within_condition:
+        for cond_label in feature_table_df["condition_label"].unique():
+            mask = feature_table_df["condition_label"] == cond_label
+            block = feature_table_df.loc[mask, feature_cols].to_numpy(dtype=float)
+            block = zscore(block, axis=0, nan_policy="omit")
+            block = np.where(np.isfinite(block), block, np.nan)
+            feature_table_df.loc[mask, feature_cols] = block
+
+    corr_df = feature_table_df[feature_cols].corr(method=correlation_method)
+
+    if return_feature_table:
+        return corr_df, feature_table_df
+
+    return corr_df
+
+def plot_feature_covariation_heatmap(
+    corr_df,
+    figsize=(10, 8),
+    cmap="apc:orange_sage_r",
+    cluster=True,
+    title="Feature-feature covariation",
+    show_title=True,
+    title_fontsize=18,
+    font_family=None,
+    font_size=8,
+    title_size=None,
+    xtick_fontsize=None,
+    ytick_fontsize=None,
+    xtick_rotation=90,
+    ytick_rotation=0,
+    axis_color="black",
+    label_color="black",
+    cbar=True,
+    cbar_label="correlation",
+    cbar_shrink=1.0,
+    cbar_aspect=30,
+    vmin=-1,
+    vmax=1,
+    center=0,
+    save=False,
+    figtitle="feature_covariation_heatmap",
+):
+    """
+    Plot a feature-feature correlation matrix as a heatmap.
+    """
+
+    if xtick_fontsize is None:
+        xtick_fontsize = font_size
+    if ytick_fontsize is None:
+        ytick_fontsize = font_size
+
+    plot_df = corr_df.copy()
+
+    if cluster:
+        linkage_mat = linkage(plot_df.values, method="average")
+        order = leaves_list(linkage_mat)
+        plot_df = plot_df.iloc[order, order]
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    hm = sns.heatmap(
+        plot_df,
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        center=center,
+        cbar=cbar,
+        ax=ax,
+        cbar_kws={
+            "shrink": cbar_shrink,
+            "aspect": cbar_aspect
+        } if cbar else None
+    )
+
+    if cbar and cbar_label is not None:
+        hm.collections[0].colorbar.set_label(
+            cbar_label,
+            fontsize=font_size,
+            fontfamily=font_family
+        )
+
+    if show_title:
+        ax.set_title(
+            title,
+            fontsize=title_size or title_fontsize,
+            fontfamily=font_family
+        )
+
+    ax.set_xticklabels(
+        ax.get_xticklabels(),
+        rotation=xtick_rotation,
+        ha="right" if xtick_rotation != 0 else "center",
+        rotation_mode="anchor",
+        fontsize=xtick_fontsize,
+        fontfamily=font_family
+    )
+
+    ax.set_yticklabels(
+        ax.get_yticklabels(),
+        rotation=ytick_rotation,
+        fontsize=ytick_fontsize,
+        fontfamily=font_family
+    )
+
+    for tick in ax.get_xticklabels():
+        tick.set_color(label_color)
+    for tick in ax.get_yticklabels():
+        tick.set_color(label_color)
+
+    for spine in ax.spines.values():
+        spine.set_color(axis_color)
+
+    ax.tick_params(axis="x", color=axis_color)
+    ax.tick_params(axis="y", color=axis_color)
+
+    plt.tight_layout()
+    plt.show()
+
+    if save:
+        fig.savefig("plots/" + figtitle + ".png", bbox_inches="tight")
+        fig.savefig("plots/" + figtitle + ".pdf", bbox_inches="tight")
+        fig.savefig("plots/" + figtitle + ".svg", bbox_inches="tight")
+
+    return fig, ax, plot_df
+
+def plot_feature_pair_relationship(
+    feature_table_df,
+    feature_x,
+    feature_y,
+    color_by="condition",   # "condition", "none"
+    condition_palette=None,
+    figsize=(6, 5),
+    alpha=0.7,
+    point_size=35,
+    add_regression_line=False,
+    title=None,
+    show_title=True,
+    title_fontsize=18,
+    font_family=None,
+    font_size=10,
+    title_size=None,
+    axis_color="black",
+    label_color="black",
+    save=False,
+    figtitle="feature_pair_relationship",
+):
+    """
+    Plot a scatter of two summarized features from the table returned by
+    compute_feature_covariation_matrix(..., return_feature_table=True).
+    """
+
+    if feature_x not in feature_table_df.columns:
+        raise ValueError(f"{feature_x} not found in feature_table_df")
+    if feature_y not in feature_table_df.columns:
+        raise ValueError(f"{feature_y} not found in feature_table_df")
+
+    plot_df = feature_table_df[[feature_x, feature_y, "condition_label"]].copy()
+    plot_df = plot_df.replace([np.inf, -np.inf], np.nan).dropna()
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    if color_by == "condition":
+        if condition_palette is None:
+            unique_conditions = plot_df["condition_label"].unique().tolist()
+            default_colors = [apc.vital, apc.wish, apc.dress, apc.lapis, apc.aster, apc.candy]
+            condition_palette = {
+                c: default_colors[i % len(default_colors)]
+                for i, c in enumerate(unique_conditions)
+            }
+
+        for cond, sub in plot_df.groupby("condition_label"):
+            ax.scatter(
+                sub[feature_x],
+                sub[feature_y],
+                color=condition_palette.get(cond, "gray"),
+                alpha=alpha,
+                s=point_size,
+                label=cond
+            )
+        ax.legend(frameon=False)
+    else:
+        ax.scatter(
+            plot_df[feature_x],
+            plot_df[feature_y],
+            color=apc.aster,
+            alpha=alpha,
+            s=point_size
+        )
+
+    if add_regression_line and len(plot_df) >= 2:
+        x = plot_df[feature_x].to_numpy(dtype=float)
+        y = plot_df[feature_y].to_numpy(dtype=float)
+        coeffs = np.polyfit(x, y, deg=1)
+        xx = np.linspace(np.nanmin(x), np.nanmax(x), 200)
+        yy = coeffs[0] * xx + coeffs[1]
+        ax.plot(xx, yy, color="black", linewidth=1.5)
+
+    ax.set_xlabel(feature_x)
+    ax.set_ylabel(feature_y)
+
+    if show_title:
+        if title is None:
+            title = f"{feature_x} vs {feature_y}"
+        ax.set_title(
+            title,
+            fontsize=title_size or title_fontsize,
+            fontfamily=font_family
+        )
+
+    for spine in ax.spines.values():
+        spine.set_color(axis_color)
+
+    ax.tick_params(axis="x", colors=axis_color)
+    ax.tick_params(axis="y", colors=axis_color)
+
+    for tick in ax.get_xticklabels():
+        tick.set_color(label_color)
+    for tick in ax.get_yticklabels():
+        tick.set_color(label_color)
+
+    if font_family is not None:
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontfamily(font_family)
+            label.set_fontsize(font_size)
+        ax.xaxis.label.set_fontfamily(font_family)
+        ax.yaxis.label.set_fontfamily(font_family)
+    else:
+        ax.tick_params(labelsize=font_size)
+
+    ax.xaxis.label.set_size(font_size)
+    ax.yaxis.label.set_size(font_size)
+
+    plt.tight_layout()
+    plt.show()
+
+    if save:
+        fig.savefig("plots/" + figtitle + ".png", bbox_inches="tight")
+        fig.savefig("plots/" + figtitle + ".pdf", bbox_inches="tight")
+        fig.savefig("plots/" + figtitle + ".svg", bbox_inches="tight")
+
+    return fig, ax, plot_df
+
+
+def compute_feature_covariation_matrix_cell_level(
+    zroots,
+    channel="BF",
+    exp_conditions=None,
+    condition_labels=None,
+    n_wells=96,
+    n_fovs=9,
+    dead_ids=None,
+    exclude_features=None,
+    abs_value_features=None,
+    correlation_method="pearson",
+    max_cells_per_well=None,  # optional subsampling
+):
+    """
+    Compute feature-feature correlation at the SINGLE CELL level.
+    """
+
+    if dead_ids is None:
+        dead_ids = []
+
+    if exclude_features is None:
+        exclude_features = []
+
+    if abs_value_features is None:
+        abs_value_features = []
+
+    if exp_conditions is None:
+        exp_conditions = list(range(len(zroots)))
+
+    if condition_labels is None:
+        condition_labels = [str(c) for c in exp_conditions]
+
+    dead_wells = sorted(set([d % n_wells for d in dead_ids]))
+    valid_wells = [w for w in range(n_wells) if w not in dead_wells]
+
+    rows = []
+
+    for exp_idx, cond_label in zip(exp_conditions, condition_labels):
+        z = zroots[exp_idx]
+
+        for well in valid_wells:
+            for fov in range(n_fovs):
+
+                props = z.get_cell_properties(fov, well, channel)
+
+                if props is None or len(props) == 0:
+                    continue
+
+                props = props.copy()
+
+                cols = props.columns.tolist()
+                if cols[0] == "label":
+                    cols[0] = "count"
+                    props.columns = cols
+
+                # remove excluded
+                cols = [c for c in props.columns if c not in exclude_features]
+
+                df = props[cols].apply(pd.to_numeric, errors="coerce")
+
+                # optional subsampling
+                if max_cells_per_well is not None and len(df) > max_cells_per_well:
+                    df = df.sample(max_cells_per_well, random_state=0)
+
+                # apply abs if needed
+                for f in abs_value_features:
+                    if f in df.columns:
+                        df[f] = np.abs(df[f])
+
+                df = df.replace([np.inf, -np.inf], np.nan).dropna()
+
+                if len(df) == 0:
+                    continue
+
+                rows.append(df)
+
+    if len(rows) == 0:
+        raise ValueError("No valid cell-level data collected.")
+
+    all_cells_df = pd.concat(rows, axis=0, ignore_index=True)
+
+    corr_df = all_cells_df.corr(method=correlation_method)
+
+    return corr_df, all_cells_df
+
