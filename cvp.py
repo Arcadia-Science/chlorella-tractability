@@ -8007,3 +8007,428 @@ def compute_feature_covariation_matrix_cell_level(
 
     return corr_df, all_cells_df
 
+
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#it's the freakend weekend! #20260403
+
+def find_feature_extremes_within_size_band(
+    zroots,
+    target_feature,
+    size_feature="area",
+    channel="BF",
+    exp_conditions=None,
+    condition_labels=None,
+    n_wells=96,
+    n_fovs=9,
+    dead_ids=None,
+    top_n_cells=20,
+    size_percentile_low=74.0,
+    size_percentile_high=76.0,
+    abs_value_target=False,
+    abs_value_size=False,
+    return_all_cells_df=False,
+):
+    """
+    Find high and low target-feature cells after restricting to a narrow band
+    of similarly sized cells.
+
+    This is useful when target features (e.g. inertia tensor, Hu moments) are
+    visually dominated by size differences and you want to compare cells that
+    are already matched for size.
+
+    Parameters
+    ----------
+    zroots : list
+        List of ExperimentStore-like objects.
+    target_feature : str
+        Feature whose extremes you want to inspect, e.g. "inertia_tensor-1-1".
+    size_feature : str
+        Feature used to define the narrow size band, usually "area".
+    channel : str
+        Channel to read from, usually "BF" or "CY5".
+    exp_conditions : list[int] or None
+        Indices into zroots to use. If None, uses all.
+    condition_labels : list[str] or None
+        Human-readable labels for conditions. If None, uses strings of exp_conditions.
+    n_wells : int
+        Number of wells.
+    n_fovs : int
+        Number of FoVs per well.
+    dead_ids : list[int] or None
+        Expanded dead row ids. Converted internally to dead wells.
+    top_n_cells : int
+        Number of extreme high and low cells to return.
+    size_percentile_low : float
+        Lower percentile bound for the size filter.
+    size_percentile_high : float
+        Upper percentile bound for the size filter.
+    abs_value_target : bool
+        If True, use absolute value of the target feature before ranking.
+    abs_value_size : bool
+        If True, use absolute value of the size feature before percentile filtering.
+    return_all_cells_df : bool
+        If True, also return the full dataframe of all cells and the filtered subset.
+
+    Returns
+    -------
+    results : dict
+        Keys:
+            "target_feature"
+            "size_feature"
+            "channel"
+            "size_low_cutoff"
+            "size_high_cutoff"
+            "n_all_cells"
+            "n_band_cells"
+            "band_cells_df"
+            "top_cells_df"
+            "bottom_cells_df"
+            optionally "all_cells_df"
+
+    Notes
+    -----
+    The output tables include locator columns:
+        condition_idx, condition_label, well, fov, cell_row_in_props
+    so you can later go back and crop those specific cells manually.
+    """
+
+    if dead_ids is None:
+        dead_ids = []
+
+    if exp_conditions is None:
+        exp_conditions = list(range(len(zroots)))
+
+    if condition_labels is None:
+        condition_labels = [str(c) for c in exp_conditions]
+
+    if len(condition_labels) != len(exp_conditions):
+        raise ValueError("condition_labels must match exp_conditions length")
+
+    if size_percentile_low >= size_percentile_high:
+        raise ValueError("size_percentile_low must be < size_percentile_high")
+
+    dead_wells = sorted(set([d % n_wells for d in dead_ids]))
+    valid_wells = [w for w in range(n_wells) if w not in dead_wells]
+
+    # ----------------------------
+    # validate features exist
+    # ----------------------------
+    checked_any = False
+    target_exists = False
+    size_exists = False
+
+    for exp_idx in exp_conditions:
+        z = zroots[exp_idx]
+        found = False
+        for fov in range(n_fovs):
+            for well in valid_wells[: min(len(valid_wells), 5)]:
+                props = z.get_cell_properties(fov, well, channel)
+                if props is None or len(props) == 0:
+                    continue
+
+                checked_any = True
+                cols = props.columns.tolist()
+                if len(cols) > 0 and cols[0] == "label":
+                    cols[0] = "count"
+
+                if target_feature in cols:
+                    target_exists = True
+                if size_feature in cols:
+                    size_exists = True
+
+                found = target_exists and size_exists
+                if found:
+                    break
+            if found:
+                break
+        if found:
+            break
+
+    if not checked_any:
+        raise ValueError("Could not inspect any non-empty feature tables.")
+
+    if not target_exists:
+        raise ValueError(f"target_feature '{target_feature}' was not found.")
+    if not size_exists:
+        raise ValueError(f"size_feature '{size_feature}' was not found.")
+
+    # ----------------------------
+    # collect all cells
+    # ----------------------------
+    rows = []
+
+    for exp_idx, cond_label in zip(exp_conditions, condition_labels):
+        z = zroots[exp_idx]
+
+        for well in valid_wells:
+            for fov in range(n_fovs):
+                props = z.get_cell_properties(fov, well, channel)
+
+                if props is None or len(props) == 0:
+                    continue
+
+                props = props.copy()
+                cols = props.columns.tolist()
+                if len(cols) > 0 and cols[0] == "label":
+                    cols[0] = "count"
+                    props.columns = cols
+
+                if target_feature not in props.columns or size_feature not in props.columns:
+                    continue
+
+                target_vals = pd.to_numeric(props[target_feature], errors="coerce").to_numpy(dtype=float)
+                size_vals = pd.to_numeric(props[size_feature], errors="coerce").to_numpy(dtype=float)
+
+                for row_idx, (tv, sv) in enumerate(zip(target_vals, size_vals)):
+                    if not np.isfinite(tv) or not np.isfinite(sv):
+                        continue
+
+                    if abs_value_target:
+                        tv = abs(tv)
+                    if abs_value_size:
+                        sv = abs(sv)
+
+                    rows.append({
+                        "target_feature": target_feature,
+                        "size_feature": size_feature,
+                        "channel": channel,
+                        "condition_idx": exp_idx,
+                        "condition_label": cond_label,
+                        "well": well,
+                        "fov": fov,
+                        "cell_row_in_props": row_idx,
+                        "target_value": float(tv),
+                        "size_value": float(sv),
+                    })
+
+    if len(rows) == 0:
+        raise ValueError("No valid cells were collected.")
+
+    all_cells_df = pd.DataFrame(rows)
+
+    # ----------------------------
+    # percentile filtering on size
+    # ----------------------------
+    size_low_cutoff = np.nanpercentile(all_cells_df["size_value"].to_numpy(dtype=float), size_percentile_low)
+    size_high_cutoff = np.nanpercentile(all_cells_df["size_value"].to_numpy(dtype=float), size_percentile_high)
+
+    band_cells_df = all_cells_df.loc[
+        (all_cells_df["size_value"] >= size_low_cutoff) &
+        (all_cells_df["size_value"] <= size_high_cutoff)
+    ].copy()
+
+    if len(band_cells_df) == 0:
+        raise ValueError("No cells fell within the requested size percentile band.")
+
+    # ----------------------------
+    # extremes within size-matched band
+    # ----------------------------
+    top_cells_df = (
+        band_cells_df
+        .sort_values("target_value", ascending=False)
+        .head(top_n_cells)
+        .reset_index(drop=True)
+    )
+
+    bottom_cells_df = (
+        band_cells_df
+        .sort_values("target_value", ascending=True)
+        .head(top_n_cells)
+        .reset_index(drop=True)
+    )
+
+    results = {
+        "target_feature": target_feature,
+        "size_feature": size_feature,
+        "channel": channel,
+        "size_low_cutoff": float(size_low_cutoff),
+        "size_high_cutoff": float(size_high_cutoff),
+        "n_all_cells": int(len(all_cells_df)),
+        "n_band_cells": int(len(band_cells_df)),
+        "band_cells_df": band_cells_df,
+        "top_cells_df": top_cells_df,
+        "bottom_cells_df": bottom_cells_df,
+    }
+
+    if return_all_cells_df:
+        results["all_cells_df"] = all_cells_df
+
+    return results
+
+def plot_feature_extremes_within_size_band(
+    feature_band_result,
+    top_n=12,
+    figsize=(10, 5),
+    high_color=apc.aster,
+    low_color=apc.lapis,
+    title=None,
+    show_title=True,
+    title_fontsize=18,
+    font_family=None,
+    font_size=10,
+    title_size=None,
+    rotation=45,
+    axis_color="black",
+    label_color="black",
+    save=False,
+    figtitle="feature_extremes_within_size_band",
+):
+    """
+    Plot top and bottom target-feature examples after size-band filtering.
+
+    Input should be the output dict from find_feature_extremes_within_size_band(...).
+    """
+
+    target_feature = feature_band_result["target_feature"]
+    size_feature = feature_band_result["size_feature"]
+    channel = feature_band_result["channel"]
+
+    top_df = feature_band_result["top_cells_df"].head(top_n).copy()
+    bottom_df = feature_band_result["bottom_cells_df"].head(top_n).copy()
+
+    plot_df = pd.concat([
+        bottom_df.assign(group="low"),
+        top_df.assign(group="high")
+    ], axis=0).reset_index(drop=True)
+
+    labels = [
+        f"{row['condition_label']}\nwell_{int(row['well'])}\nfov_{int(row['fov'])}\nrow_{int(row['cell_row_in_props'])}"
+        for _, row in plot_df.iterrows()
+    ]
+
+    vals = plot_df["target_value"].to_numpy(dtype=float)
+    colors = [low_color if g == "low" else high_color for g in plot_df["group"]]
+    pos = np.arange(len(plot_df))
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.bar(pos, vals, color=colors)
+
+    ax.set_xticks(pos)
+    ax.set_xticklabels(labels, rotation=rotation, ha="right")
+
+    ax.set_ylabel(target_feature)
+
+    if show_title:
+        if title is None:
+            title = (
+                f"High/low {target_feature} within matched {size_feature} band "
+                f"({channel})"
+            )
+        ax.set_title(
+            title,
+            fontsize=title_size or title_fontsize,
+            fontfamily=font_family
+        )
+
+    for spine in ax.spines.values():
+        spine.set_color(axis_color)
+
+    ax.tick_params(axis="x", colors=axis_color)
+    ax.tick_params(axis="y", colors=axis_color)
+
+    for tick in ax.get_xticklabels():
+        tick.set_color(label_color)
+    for tick in ax.get_yticklabels():
+        tick.set_color(label_color)
+
+    if font_family is not None:
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontfamily(font_family)
+            label.set_fontsize(font_size)
+        ax.xaxis.label.set_fontfamily(font_family)
+        ax.yaxis.label.set_fontfamily(font_family)
+    else:
+        ax.tick_params(labelsize=font_size)
+
+    ax.xaxis.label.set_size(font_size)
+    ax.yaxis.label.set_size(font_size)
+
+    plt.tight_layout()
+    plt.show()
+
+    if save:
+        fig.savefig("plots/" + figtitle + ".png", bbox_inches="tight")
+        fig.savefig("plots/" + figtitle + ".pdf", bbox_inches="tight")
+        fig.savefig("plots/" + figtitle + ".svg", bbox_inches="tight")
+
+    return fig, ax, plot_df
+
+
+import copy
+import numpy as np
+
+def signed_log_transform_hu_features(
+    training_data,
+    training_feature_labels,
+    log_base="log10",   # "log10", "log2", or "ln"
+    eps=1e-12,
+    in_place=False,
+):
+    """
+    Apply signed log transform to Hu-moment columns only:
+        sign(H) * log(|H| + eps)
+
+    Parameters
+    ----------
+    training_data : dict[str, np.ndarray]
+        Usually training_data_finite
+    training_feature_labels : list[str]
+        Labels returned by build_training_data(...)
+    log_base : str
+        "log10", "log2", or "ln"
+    eps : float
+        Small constant to avoid log(0)
+    in_place : bool
+        If True, modify training_data directly.
+        If False, return a transformed copy.
+
+    Returns
+    -------
+    transformed_data : dict[str, np.ndarray]
+    hu_indices : list[int]
+    hu_labels : list[str]
+    """
+
+    if in_place:
+        transformed_data = training_data
+    else:
+        transformed_data = {
+            cond: arr.copy().astype(float)
+            for cond, arr in training_data.items()
+        }
+
+    hu_indices = [
+        i for i, f in enumerate(training_feature_labels)
+        if "moments_hu" in f
+    ]
+    hu_labels = [training_feature_labels[i] for i in hu_indices]
+
+    if len(hu_indices) == 0:
+        raise ValueError("No Hu-moment columns found in training_feature_labels.")
+
+    if log_base == "log10":
+        log_fn = np.log10
+    elif log_base == "log2":
+        log_fn = np.log2
+    elif log_base == "ln":
+        log_fn = np.log
+    else:
+        raise ValueError("log_base must be 'log10', 'log2', or 'ln'")
+
+    for cond in transformed_data:
+        X = transformed_data[cond]
+        H = X[:, hu_indices]
+        X[:, hu_indices] = np.sign(H) * log_fn(np.abs(H) + eps)
+
+    return transformed_data, hu_indices, hu_labels
