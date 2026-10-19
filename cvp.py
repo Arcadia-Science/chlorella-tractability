@@ -25,7 +25,7 @@ from arcadia_microscopy_tools.operations import (
     get_background_subtracted_intensities,
     rescale_intensity_by_percentiles,
 )
-from arcadia_microscopy_tools.pipeline import ImageOperation, Pipeline
+from arcadia_microscopy_tools.pipeline import ImageOperation
 from natsort import natsorted
 
 #basic tools
@@ -194,7 +194,8 @@ def showcase_clone_images_1_by_1(
     marker_size_2=8,
     marker_color_bf='yellow',
     marker_color_cy='red',
-    show_only_merged=False
+    show_only_merged=False,
+    hide_in_cell=False,
 
 ):
 
@@ -232,6 +233,8 @@ def showcase_clone_images_1_by_1(
     if show_only_merged==False:   
         for i in range(len(ims)):
             fig, ax = plt.subplots(figsize=(f_size[0], f_size[1]))
+            if hide_in_cell:
+                plt.close(fig)
 
             if i == 0:
 
@@ -1717,7 +1720,8 @@ def plot_tsne(input_dat,
               tsne_alpha=.9,
               feat_2_color_by=-1,
               feat_cmap="apc:verde",
-              feat_alpha=.7):
+              feat_alpha=.7,
+              hide_in_cell=True):
 
     
     
@@ -1747,11 +1751,13 @@ def plot_tsne(input_dat,
     
     plt.xticks([])
     plt.yticks([])
-    plt.show()
+    if hide_in_cell:
+        plt.close(fig)
     
     fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.svg',bbox_inches='tight')
     fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.pdf',bbox_inches='tight')
     fig.savefig('plots/chlorella_pub_fig_' + figtitle + '.png',bbox_inches='tight')
+
 
     return pd.Series(zscore(input_dat[:,feat_2_color_by])).quantile(.95)
 def train_and_predict(
@@ -2307,9 +2313,10 @@ def plot_true_vs_predicted_pca_by_condition(
     dead_ids,
     ytick_colors,
     col_titles,
-    alpha=100,
+    alpha=.8,
     model_type="ridge",
     figsize=(30, 20),
+    marker_size=100,
     nrows=2,
     ncols=3,
     prediction_color=apc.shell,
@@ -2458,6 +2465,26 @@ def plot_true_vs_predicted_pca_by_condition(
         gt = data_for_PCA_graphs[cond][0]
         pred = data_for_PCA_graphs[cond][1]
 
+
+
+        ax[cond].scatter(
+            pred[:, 0],
+            pred[:, 1],
+            label="Prediction",
+            color=prediction_color,
+            alpha=prediction_alpha,
+            s=marker_size
+        )
+
+        ax[cond].scatter(
+            gt[:, 0],
+            gt[:, 1],
+            label="Ground Truth",
+            color=ytick_colors[cond],
+            alpha=ground_truth_alpha,
+            s=marker_size
+        )
+
         ax[cond].quiver(
             gt[:, 0],
             gt[:, 1],
@@ -2469,22 +2496,6 @@ def plot_true_vs_predicted_pca_by_condition(
             color=quiver_color,
             alpha=quiver_alpha,
             width=quiver_width
-        )
-
-        ax[cond].scatter(
-            pred[:, 0],
-            pred[:, 1],
-            label="Prediction",
-            color=prediction_color,
-            alpha=prediction_alpha
-        )
-
-        ax[cond].scatter(
-            gt[:, 0],
-            gt[:, 1],
-            label="Ground Truth",
-            color=ytick_colors[cond],
-            alpha=ground_truth_alpha
         )
 
         ax[cond].set_title(col_titles[cond], fontsize=title_fontsize)
@@ -5418,17 +5429,17 @@ def plot_global_vs_response_outlier_scores(
     figsize=(6, 6),
     color=apc.aster,
     alpha=0.8,
-    s=50,
+    s=300,
     title="Global phenotype vs environmental-response outlier scores",
     show_title=True,
     title_fontsize=18,
     font_family=None,
-    font_size=10,
+    font_size=20,
     title_size=None,
     axis_color="black",
     label_color="black",
     annotate_top_n=0,
-    annotation_fontsize=8,
+    annotation_fontsize=16,
     annotate_by="sum",   # "sum", "global", or "response"
     reference_lines=True,
     reference_line_color="gray",
@@ -5505,7 +5516,7 @@ def plot_global_vs_response_outlier_scores(
             ax.text(
                 row[global_score_col],
                 row[response_score_col],
-                f"strain_{int(row['well'])}",
+                f"mt_{int(row['well'])}",
                 fontsize=annotation_fontsize,
                 fontfamily=font_family,
                 color=label_color
@@ -8432,3 +8443,1535 @@ def signed_log_transform_hu_features(
         X[:, hu_indices] = np.sign(H) * log_fn(np.abs(H) + eps)
 
     return transformed_data, hu_indices, hu_labels
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def _resolve_feature_label(feature, channel, training_feature_labels):
+    """
+    Resolve a user-supplied feature name to an exact entry in
+    training_feature_labels (labels look like 'area (bf)').
+
+    Accepts either the full label ('area (bf)') or a bare feature name
+    ('area') plus an optional channel ('BF'/'CY5').
+    """
+    if feature in training_feature_labels:
+        return feature
+
+    if channel is not None:
+        cand = f"{feature} ({channel.lower()})"
+        if cand in training_feature_labels:
+            return cand
+
+    # match on the part before ' ('
+    matches = [l for l in training_feature_labels if l.split(" (")[0] == feature]
+    if channel is not None:
+        matches = [l for l in matches if l.endswith(f"({channel.lower()})")]
+
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise ValueError(
+            f"Feature '{feature}' is ambiguous across channels: {matches}. "
+            f"Pass channel='BF' or channel='CY5'."
+        )
+    raise ValueError(
+        f"Feature '{feature}' not found. Available labels include: {training_feature_labels}"
+    )
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def _collect_strain_fov_matrix(training_data, strains, conditions, n_wells, n_fovs):
+    """
+    Stack per-FOV feature rows for the requested strains and conditions.
+
+    Returns
+    -------
+    X          : (n_rows, n_features) float array, one row per (condition, strain, fov)
+    strain_ids : (n_rows,) int array
+    cond_ids   : (n_rows,) object array
+    fov_ids    : (n_rows,) int array
+    """
+    X, strain_ids, cond_ids, fov_ids = [], [], [], []
+    for cond in conditions:
+        dat = np.asarray(training_data[cond], dtype=float)
+        for s in strains:
+            for f in range(n_fovs):
+                r = s + f * n_wells
+                X.append(dat[r, :])
+                strain_ids.append(s)
+                cond_ids.append(cond)
+                fov_ids.append(f)
+    return (
+        np.vstack(X),
+        np.array(strain_ids),
+        np.array(cond_ids, dtype=object),
+        np.array(fov_ids),
+    )
+
+
+def compare_strain_phenotypes_pca(
+    training_data,
+    training_feature_labels,
+    strains,
+    conditions=None,
+    n_wells=96,
+    n_fovs=None,
+    dead_ids=None,
+    fit_pca_on="selected_strains",   # "selected_strains" or "all_strains"
+    standardize=True,
+    pc_x=0,
+    pc_y=1,
+    strain_colors=None,
+    marker_by_condition=False,
+    point_size=60,
+    alpha=0.85,
+    show_strain_centroids=True,
+    figsize=(8, 7),
+    show_title=True,
+    title=None,
+    title_fontsize=16,
+    save=False,
+    figtitle="phenotype_pca",
+):
+    """
+    Project each field of view of the selected strains into a shared PCA space,
+    one dot per FOV, colored by strain.
+
+    Parameters
+    ----------
+    training_data : dict[str, np.ndarray]
+        condition -> (n_wells*n_fovs, n_features) array (row = well + fov*n_wells).
+        Use a finite version (e.g. training_data_finite or training_data_hu_log).
+    training_feature_labels : list[str]
+    strains : list[int]
+        Any number of wells/strains to compare, e.g. [0, 24, 93].
+    conditions : list[str] or None
+        Conditions to include. None -> all conditions in training_data.
+    fit_pca_on : str
+        "selected_strains" -> PCA fit only on the strains you passed.
+        "all_strains"      -> PCA fit on all valid wells (shared reference space).
+    standardize : bool
+        z-score features before PCA so large-scale features (area) don't dominate.
+    pc_x, pc_y : int
+        Which principal components to plot.
+    marker_by_condition : bool
+        If True, use a different marker shape per condition (color still = strain).
+
+    Returns
+    -------
+    fig, ax, coords_df
+        coords_df has columns: strain, condition, fov, PCx, PCy.
+    """
+    if dead_ids is None:
+        dead_ids = []
+    if conditions is None:
+        conditions = list(training_data.keys())
+    if fit_pca_on not in ("selected_strains", "all_strains"):
+        raise ValueError("fit_pca_on must be 'selected_strains' or 'all_strains'")
+
+    for cond in conditions:
+        if cond not in training_data:
+            raise ValueError(f"{cond} not found in training_data")
+
+    example = np.asarray(training_data[conditions[0]], dtype=float)
+    if n_fovs is None:
+        n_fovs = example.shape[0] // n_wells
+
+    dead_wells = sorted(set(d % n_wells for d in dead_ids))
+    valid_wells = [w for w in range(n_wells) if w not in dead_wells]
+    for s in strains:
+        if s not in valid_wells:
+            raise ValueError(f"strain {s} is not a valid well (dead or out of range)")
+
+    # --- population used to FIT the PCA basis ---
+    fit_strains = valid_wells if fit_pca_on == "all_strains" else list(strains)
+    Xfit, _, _, _ = _collect_strain_fov_matrix(
+        training_data, fit_strains, conditions, n_wells, n_fovs
+    )
+
+    # --- points to PLOT (selected strains) ---
+    Xplot, strain_ids, cond_ids, fov_ids = _collect_strain_fov_matrix(
+        training_data, list(strains), conditions, n_wells, n_fovs
+    )
+
+    # --- make finite: inf->nan, drop empty FOV rows, impute with fit col-means ---
+    Xfit[~np.isfinite(Xfit)] = np.nan
+    Xplot[~np.isfinite(Xplot)] = np.nan
+
+    fit_keep = ~np.all(np.isnan(Xfit), axis=1)
+    Xfit = Xfit[fit_keep]
+    col_means = np.nanmean(Xfit, axis=0)
+    bad = np.where(np.isnan(col_means))[0]
+    if len(bad) > 0:
+        raise ValueError(f"Feature columns all-NaN in fit set, cannot impute: {bad}")
+
+    plot_keep = ~np.all(np.isnan(Xplot), axis=1)
+    Xplot = Xplot[plot_keep]
+    strain_ids, cond_ids, fov_ids = strain_ids[plot_keep], cond_ids[plot_keep], fov_ids[plot_keep]
+
+    ri, ci = np.where(np.isnan(Xfit));  Xfit[ri, ci] = col_means[ci]
+    rp, cp = np.where(np.isnan(Xplot)); Xplot[rp, cp] = col_means[cp]
+
+    # --- standardize on the fit population ---
+    if standardize:
+        mu = np.mean(Xfit, axis=0)
+        sd = np.std(Xfit, axis=0); sd[sd == 0] = 1.0
+        Xfit = (Xfit - mu) / sd
+        Xplot = (Xplot - mu) / sd
+
+    # --- fit PCA (pca_on_np_array mutates its input, so pass a copy) ---
+    _, evecs, evals, mean_val = pca_on_np_array(Xfit.copy())
+    var_explained = evals / np.sum(evals)
+
+    proj = np.dot(Xplot - mean_val, evecs)
+    px, py = proj[:, pc_x], proj[:, pc_y]
+
+    # --- colors / markers ---
+    if strain_colors is None:
+        cmap = plt.get_cmap("tab10" if len(strains) <= 10 else "tab20")
+        strain_colors = {s: cmap(i % cmap.N) for i, s in enumerate(strains)}
+    elif isinstance(strain_colors, (list, tuple)):
+        strain_colors = {s: strain_colors[i] for i, s in enumerate(strains)}
+
+    marker_cycle = ["o", "s", "^", "D", "v", "P", "X", "*"]
+    cond_markers = {c: marker_cycle[i % len(marker_cycle)] for i, c in enumerate(conditions)}
+
+    fig, ax = plt.subplots(figsize=figsize)
+    for s in strains:
+        for cond in conditions:
+            m = (strain_ids == s) & (cond_ids == cond)
+            if not np.any(m):
+                continue
+            ax.scatter(
+                px[m], py[m],
+                s=point_size, alpha=alpha,
+                color=strain_colors[s],
+                marker=cond_markers[cond] if marker_by_condition else "o",
+                edgecolor="none",
+                zorder=2,
+            )
+        if show_strain_centroids:
+            ms = (strain_ids == s)
+            ax.scatter(
+                np.mean(px[ms]), np.mean(py[ms]),
+                s=point_size * 4, color=strain_colors[s],
+                edgecolor="black", linewidth=1.5, zorder=3,
+            )
+            #ax.text(np.mean(px[ms]), np.mean(py[ms]), f"{s}",
+                    #fontsize=10, ha="center", va="center", zorder=4)
+
+    ax.set_xlabel(f"PC{pc_x + 1} ({var_explained[pc_x] * 100:.1f}%)")
+    ax.set_ylabel(f"PC{pc_y + 1} ({var_explained[pc_y] * 100:.1f}%)")
+    ax.set_xticks([]); ax.set_yticks([])
+    '''
+    for s in strains:
+        ax.scatter([], [], color=strain_colors[s], label=f"strain {s}")
+    leg1 = ax.legend(title="Strain", loc="best")
+    if marker_by_condition:
+        ax.add_artist(leg1)
+        handles = [plt.Line2D([], [], marker=cond_markers[c], color="grey",
+                              linestyle="none", label=str(c)) for c in conditions]
+        ax.legend(handles=handles, title="Condition", loc="lower right")
+    '''
+
+    if show_title:
+        if title is None:
+            fit_txt = "all strains" if fit_pca_on == "all_strains" else "selected strains"
+            title = f"Per-FOV PCA (fit on {fit_txt}) — strains {list(strains)}"
+        ax.set_title(title, fontsize=title_fontsize)
+
+    plt.tight_layout()
+    plt.show()
+
+    coords_df = pd.DataFrame({
+        "strain": strain_ids, "condition": cond_ids, "fov": fov_ids,
+        "PCx": px, "PCy": py,
+    })
+
+    if save:
+        for ext in ("png", "pdf", "svg"):
+            fig.savefig(f"plots/chlorella_pub_fig_{figtitle}.{ext}", bbox_inches="tight")
+
+    return fig, ax, coords_df
+
+def compare_strain_feature(
+    training_data,
+    training_feature_labels,
+    strains,
+    feature,
+    channel=None,
+    conditions=None,
+    n_wells=96,
+    n_fovs=None,
+    dead_ids=None,
+    plot_kind="box",            # "box", "bar", or "strip"
+    split_by_condition=False,
+    show_points=True,
+    point_alpha=0.6,
+    strain_colors=None,
+    ylabel=None,
+    show_xticklabels=False,
+    show_axis_labels=False,
+    figsize=(8, 5),
+    show_title=True,
+    title=None,
+    title_fontsize=15,
+    save=False,
+    figtitle="strain_feature_comparison",
+):
+    """
+    Compare a single feature (e.g. 'area') across strains, one point per FOV.
+
+    feature : str
+        Full label ('area (bf)') or bare name ('area') + channel='BF'/'CY5'.
+    split_by_condition : bool
+        If True, split each strain's distribution by condition (hue).
+
+    Returns
+    -------
+    fig, ax, tidy_df  (columns: strain, condition, fov, value)
+    """
+    if dead_ids is None:
+        dead_ids = []
+    if conditions is None:
+        conditions = list(training_data.keys())
+
+    label = _resolve_feature_label(feature, channel, training_feature_labels)
+    feat_idx = training_feature_labels.index(label)
+
+    example = np.asarray(training_data[conditions[0]], dtype=float)
+    if n_fovs is None:
+        n_fovs = example.shape[0] // n_wells
+
+    dead_wells = sorted(set(d % n_wells for d in dead_ids))
+    for s in strains:
+        if s in dead_wells:
+            raise ValueError(f"strain {s} is a dead well")
+
+    recs = []
+    for cond in conditions:
+        dat = np.asarray(training_data[cond], dtype=float)
+        for s in strains:
+            for f in range(n_fovs):
+                v = dat[s + f * n_wells, feat_idx]
+                if np.isfinite(v):
+                    recs.append({"strain": s, "condition": cond, "fov": f, "value": v})
+    tidy_df = pd.DataFrame(recs)
+
+    # seaborn casts the categorical axis to str -> keep strain as str everywhere
+    tidy_df["strain"] = tidy_df["strain"].astype(str)
+    order = [str(s) for s in strains]
+
+    # build strain palette keyed by the (string) strain labels
+    if strain_colors is None:
+        cmap = plt.get_cmap("tab10" if len(strains) <= 10 else "tab20")
+        strain_palette = {str(s): cmap(i % cmap.N) for i, s in enumerate(strains)}
+    elif isinstance(strain_colors, (list, tuple)):
+        strain_palette = {str(s): strain_colors[i] for i, s in enumerate(strains)}
+    else:  # dict
+        strain_palette = {str(s): strain_colors[s] for s in strains}
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # when not splitting, color by strain via hue="strain" (avoids the palette/hue warning)
+    if split_by_condition:
+        main_hue, main_palette, main_legend = "condition", None, True
+    else:
+        main_hue, main_palette, main_legend = "strain", strain_palette, False
+
+    if plot_kind == "box":
+        sns.boxplot(data=tidy_df, x="strain", y="value", order=order,
+                    hue=main_hue, palette=main_palette, legend=main_legend,
+                    showfliers=not show_points, ax=ax)
+    elif plot_kind == "bar":
+        sns.barplot(data=tidy_df, x="strain", y="value", order=order,
+                    hue=main_hue, palette=main_palette, legend=main_legend,
+                    errorbar="sd", ax=ax)
+    elif plot_kind == "strip":
+        show_points = False
+        sns.stripplot(data=tidy_df, x="strain", y="value", order=order,
+                      hue=main_hue, palette=main_palette, legend=main_legend,
+                      dodge=split_by_condition, alpha=point_alpha, ax=ax)
+    else:
+        raise ValueError("plot_kind must be 'box', 'bar', or 'strip'")
+
+    # black FOV points on top of box/bar
+    if show_points and plot_kind != "strip":
+        strip_kwargs = dict(data=tidy_df, x="strain", y="value", order=order,
+                            alpha=point_alpha, size=4, legend=False, ax=ax)
+        if split_by_condition:
+            strip_kwargs.update(hue="condition", dodge=True,
+                                palette={c: "black" for c in conditions})
+        else:
+            strip_kwargs.update(color="black")
+        sns.stripplot(**strip_kwargs)
+
+    if show_axis_labels:
+        ax.set_xlabel("Strain")
+        ax.set_ylabel(ylabel if ylabel is not None else label)
+    else:
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+
+    if not show_xticklabels:
+        ax.set_xticklabels([])
+    if show_title:
+        ax.set_title(title if title is not None else f"{label} across strains",
+                     fontsize=title_fontsize)
+
+    plt.tight_layout()
+    plt.show()
+
+    if save:
+        for ext in ("png", "pdf", "svg"):
+            fig.savefig(f"plots/chlorella_pub_fig_{figtitle}.{ext}", bbox_inches="tight")
+
+    return fig, ax, tidy_df
+
+def plot_strain_pair_feature_heatmap(
+    training_data,
+    training_feature_labels,
+    strain_a,
+    strain_b,
+    conditions=None,
+    n_wells=96,
+    n_fovs=None,
+    dead_ids=None,
+    reference_strains=None,     # population for z-scoring; None -> all valid wells
+    top_n=None,                 # show only the top_n most-different features
+    show_diff_row=False,        # add a 3rd row = z(strain_a) - z(strain_b)
+    vmax=3.5,
+    figsize=(14, 4),
+    title=None,
+    figtitle="strain_pair_feature_heatmap",
+    save=True,
+):
+    """
+    Heatmap of the full feature set for two strains, z-scored across a strain
+    population. Features sorted by |z(strain_a) - z(strain_b)| (left = most
+    different). Style mirrors plot_strain_heatmap.
+
+    Returns
+    -------
+    fig, ax, diff_df   (columns: feature, z_a, z_b, diff, abs_diff; sorted)
+    """
+    if dead_ids is None:
+        dead_ids = []
+    if conditions is None:
+        conditions = list(training_data.keys())
+
+    example = np.asarray(training_data[conditions[0]], dtype=float)
+    if n_fovs is None:
+        n_fovs = example.shape[0] // n_wells
+
+    dead_wells = sorted(set(d % n_wells for d in dead_ids))
+    valid_wells = [w for w in range(n_wells) if w not in dead_wells]
+    for s in (strain_a, strain_b):
+        if s not in valid_wells:
+            raise ValueError(f"strain {s} is not a valid well (dead or out of range)")
+    if reference_strains is None:
+        reference_strains = valid_wells
+
+    # mean feature vector for one strain, pooled over FoVs and conditions
+    def _strain_mean(strain):
+        rows = []
+        for cond in conditions:
+            dat = np.asarray(training_data[cond], dtype=float)
+            for f in range(n_fovs):
+                rows.append(dat[strain + f * n_wells, :])
+        rows = np.vstack(rows)
+        rows[~np.isfinite(rows)] = np.nan
+        return np.nanmean(rows, axis=0)
+
+    # reference population -> per-feature mean / std for z-scoring
+    ref = np.vstack([_strain_mean(s) for s in reference_strains])
+    mu = np.nanmean(ref, axis=0)
+    sd = np.nanstd(ref, axis=0); sd[sd == 0] = 1.0
+
+    z_a = (_strain_mean(strain_a) - mu) / sd
+    z_b = (_strain_mean(strain_b) - mu) / sd
+    diff = z_a - z_b
+
+    # sort features by absolute difference between the two strains (descending)
+    feat_order = np.argsort(np.abs(diff))[::-1]
+    if top_n is not None:
+        feat_order = feat_order[:top_n]
+
+    feat_sorted = [training_feature_labels[i] for i in feat_order]
+    rows = [z_a[feat_order], z_b[feat_order]]
+    row_labels = [f"strain {strain_a}", f"strain {strain_b}"]
+    if show_diff_row:
+        rows.append(diff[feat_order])
+        row_labels.append(f"{strain_a} − {strain_b}")
+    z_sorted = np.vstack(rows)
+
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    im = ax.imshow(
+        z_sorted,
+        aspect="auto",
+        cmap="RdBu_r",
+        vmin=-vmax, vmax=vmax,
+        interpolation="nearest",
+    )
+
+    ax.set_xticks(range(len(feat_sorted)))
+    ax.set_xticklabels(feat_sorted, rotation=45, ha="right", fontsize=7.5)
+    ax.set_yticks(range(len(row_labels)))
+    ax.set_yticklabels(row_labels, fontsize=10)
+    ax.set_xlabel("Feature (sorted by |z difference| between strains)", fontsize=10)
+    if title is None:
+        title = f"Strain {strain_a} vs {strain_b} — feature z-scores (vs strain population)"
+    ax.set_title(title, fontsize=12, fontweight="bold")
+
+    cbar = fig.colorbar(im, ax=ax, shrink=0.5, pad=0.01)
+    cbar.set_label("Z-score vs strain population", fontsize=9)
+
+    if save:
+        for ext in ("svg", "pdf", "png"):
+            fig.savefig(f"plots/{figtitle}.{ext}", dpi=150, bbox_inches="tight")
+        print(f"Saved to plots/{figtitle}.*")
+    plt.show()
+
+    diff_df = pd.DataFrame({
+        "feature": [training_feature_labels[i] for i in feat_order],
+        "z_a": z_a[feat_order],
+        "z_b": z_b[feat_order],
+        "diff": diff[feat_order],
+        "abs_diff": np.abs(diff[feat_order]),
+    })
+    return fig, ax, diff_df
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def _resolve_condition_key(temperature, growth_stage, available_conditions):
+    """
+    Resolve a temperature (16/22/30) and growth stage ('e_stat'/'l_stat') to a
+    condition key in training_data (keys look like 'e_stat_16').
+
+    Accepts temperature as 16, "16", "16C", "16C" and growth stage as
+    "e_stat"/"early"/"e"/"early_stationary" or "l_stat"/"late"/"l"/"late_stationary".
+    """
+    temp_digits = "".join(ch for ch in str(temperature) if ch.isdigit())
+    if temp_digits == "":
+        raise ValueError(f"Could not read a temperature from {temperature!r}")
+
+    stage_raw = str(growth_stage).strip().lower().replace(".", "_").replace("-", "_")
+    if stage_raw.startswith("e"):
+        stage = "e_stat"
+    elif stage_raw.startswith("l"):
+        stage = "l_stat"
+    else:
+        raise ValueError(
+            f"Could not read a growth stage from {growth_stage!r}. "
+            "Use 'e_stat'/'early' or 'l_stat'/'late'."
+        )
+
+    candidate = f"{stage}_{temp_digits}"
+    if candidate in available_conditions:
+        return candidate
+
+    # fall back to any key that carries both the stage and the temperature
+    matches = [
+        c for c in available_conditions
+        if stage in str(c).lower() and temp_digits in str(c)
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise ValueError(
+            f"Temperature {temperature} + growth stage {growth_stage} is ambiguous: {matches}"
+        )
+    raise ValueError(
+        f"No condition found for temperature {temperature} and growth stage {growth_stage}. "
+        f"Available conditions: {list(available_conditions)}"
+    )
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def _select_feature_indices(training_feature_labels, exclude_features=None,
+                            include_features=None, exclude_channels=None):
+    """
+    Pick which feature columns to keep for a heatmap.
+
+    exclude_features / include_features accept, for each entry:
+      - a full label      -> 'moments_hu-0 (bf)'  (that column only)
+      - a bare name       -> 'moments_hu-0'       (that feature, both channels)
+      - a partial name    -> 'moments_hu'         (every Hu moment, both channels)
+    Exact matches win: 'area' drops only 'area (bf)'/'area (cy5)', never
+    'area_convex'. A token that matches nothing exactly falls back to a
+    substring match, so 'moments_hu' drops all of them at once.
+    exclude_channels accepts e.g. ['CY5'].
+    """
+    labels = list(training_feature_labels)
+    bare_labels = [l.split(" (")[0] for l in labels]
+
+    def _matched_indices(tokens, strict):
+        if isinstance(tokens, str):
+            tokens = [tokens]
+        hits = set()
+        for token in tokens:
+            token = str(token)
+            exact = [
+                i for i, l in enumerate(labels)
+                if l == token or bare_labels[i] == token
+            ]
+            if exact:
+                hits.update(exact)
+                continue
+            partial = [i for i, l in enumerate(labels) if token in l]
+            if partial:
+                hits.update(partial)
+            elif strict:
+                raise ValueError(
+                    f"Feature '{token}' not found in training_feature_labels."
+                )
+        return hits
+
+    keep = list(range(len(labels)))
+
+    if include_features is not None:
+        wanted = _matched_indices(include_features, strict=True)
+        keep = [i for i in keep if i in wanted]
+
+    # features already dropped upstream (e.g. in build_training_data) are ignored
+    if exclude_features is not None:
+        dropped = _matched_indices(exclude_features, strict=False)
+        keep = [i for i in keep if i not in dropped]
+
+    if exclude_channels is not None:
+        if isinstance(exclude_channels, str):
+            exclude_channels = [exclude_channels]
+        drop = tuple(f"({c.lower()})" for c in exclude_channels)
+        keep = [i for i in keep if not labels[i].endswith(drop)]
+
+    if len(keep) == 0:
+        raise ValueError("No features left after applying include/exclude filters.")
+
+    return keep, [labels[i] for i in keep]
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def plot_all_strain_feature_heatmap(
+    training_data,
+    training_feature_labels,
+    temperature,
+    growth_stage,
+    fovs=0,                       # int, list of ints, or "all"
+    n_wells=96,
+    n_fovs=None,
+    dead_ids=None,
+    strains=None,                 # None -> every valid well
+    exclude_features=None,        # e.g. ["moments_hu-0", "moments_hu"] or full labels
+    include_features=None,
+    exclude_channels=None,        # e.g. ["CY5"]
+    normalize="zscore",           # "zscore", "double_zscore", "minmax", or None
+    sort_features=False,
+    sort_by="variance",           # "variance" or "mean"
+    cluster_strains=False,
+    cluster_features=False,
+    cluster_metric="euclidean",
+    cluster_method="average",
+    orientation="vertical",       # "vertical" -> features on y, strains on x
+    figsize=(18, 10),
+    cmap="apc:orange_sage_r",
+    title=None,
+    show_title=True,
+    title_fontsize=18,
+    font_family=None,
+    font_size=10,
+    title_size=None,
+    xtick_fontsize=None,
+    ytick_fontsize=None,
+    xtick_rotation=90,
+    ytick_rotation=0,
+    show_xticklabels=True,
+    show_yticklabels=True,
+    axis_color="black",
+    label_color="black",
+    xtick_colors=None,
+    ytick_colors=None,
+    cbar=True,
+    cbar_label=None,
+    cbar_shrink=1.0,
+    cbar_aspect=30,
+    vmin=None,
+    vmax=None,
+    save=False,
+    figtitle=None,
+):
+    """
+    Heatmap of every strain x every feature for one experimental condition,
+    selected by temperature and growth stage.
+
+    Parameters
+    ----------
+    training_data : dict[str, np.ndarray]
+        Condition -> array of shape (n_wells * n_fovs, n_features).
+        Usually training_data_finite or training_data_hu_log.
+    training_feature_labels : list[str]
+        Labels returned by build_training_data(...).
+    temperature : int or str
+        16, 22, or 30 (also accepts "16C").
+    growth_stage : str
+        "e_stat"/"early" or "l_stat"/"late".
+    fovs : int, list[int], or "all"
+        Field(s) of view to use. Default 0 (a single FoV). Pass a list, e.g.
+        [0, 1, 2], or "all" to average feature values across several FoVs.
+    dead_ids : list[int] or None
+        Expanded dead row indices; the corresponding wells are dropped.
+    strains : list[int] or None
+        Wells to show. None -> every valid well.
+    exclude_features / include_features : list[str] or None
+        Accepts full labels ('moments_hu-0 (bf)'), bare names ('moments_hu-0'),
+        or partial names ('moments_hu' drops every Hu moment in both channels).
+    normalize : str or None
+        "zscore"        -> per feature, across strains (default)
+        "double_zscore" -> z-score across strains, then across the whole matrix
+        "minmax"        -> per feature, scaled to [0, 1]
+        None            -> raw feature means
+    sort_features : bool
+        Order features by `sort_by` ("variance" or "mean" across strains).
+    cluster_strains / cluster_features : bool
+        Hierarchically order strains and/or features (overrides sort_features).
+    orientation : str
+        "vertical"   -> features on y-axis, strains on x-axis
+        "horizontal" -> strains on y-axis, features on x-axis
+
+    Returns
+    -------
+    fig, ax, plot_df
+    """
+    if dead_ids is None:
+        dead_ids = []
+
+    condition = _resolve_condition_key(temperature, growth_stage, list(training_data.keys()))
+
+    dat = np.asarray(training_data[condition], dtype=float)
+    n_rows, n_features_total = dat.shape
+
+    if len(training_feature_labels) != n_features_total:
+        raise ValueError(
+            f"training_feature_labels has length {len(training_feature_labels)} "
+            f"but training_data['{condition}'] has {n_features_total} columns"
+        )
+
+    if n_fovs is None:
+        n_fovs = n_rows // n_wells
+
+    # --- Which FoVs ---
+    if isinstance(fovs, str):
+        if fovs.lower() != "all":
+            raise ValueError('fovs must be an int, a list of ints, or "all"')
+        fov_list = list(range(n_fovs))
+    elif isinstance(fovs, (int, np.integer)):
+        fov_list = [int(fovs)]
+    else:
+        fov_list = [int(f) for f in fovs]
+
+    bad_fovs = [f for f in fov_list if f < 0 or f >= n_fovs]
+    if bad_fovs:
+        raise ValueError(f"FoV(s) {bad_fovs} out of range; this dataset has {n_fovs} FoVs (0-{n_fovs - 1})")
+
+    # --- Which strains ---
+    dead_wells = sorted(set(d % n_wells for d in dead_ids))
+    valid_wells = [w for w in range(n_wells) if w not in dead_wells]
+    if strains is None:
+        strains_to_use = valid_wells
+    else:
+        strains_to_use = [int(s) for s in strains]
+        for s in strains_to_use:
+            if s in dead_wells:
+                raise ValueError(f"strain {s} is a dead well")
+            if s < 0 or s >= n_wells:
+                raise ValueError(f"strain {s} is out of range (0-{n_wells - 1})")
+
+    # --- Which features ---
+    feat_idx, feature_labels = _select_feature_indices(
+        training_feature_labels,
+        exclude_features=exclude_features,
+        include_features=include_features,
+        exclude_channels=exclude_channels,
+    )
+
+    # --- Strain x feature matrix (mean across the selected FoVs) ---
+    strain_mat, strain_labels_used = [], []
+    for well in strains_to_use:
+        block = dat[[well + f * n_wells for f in fov_list], :][:, feat_idx]
+        block = np.where(np.isfinite(block), block, np.nan)
+        if np.all(np.isnan(block)):
+            continue
+        strain_mat.append(np.nanmean(block, axis=0))
+        strain_labels_used.append(well)
+
+    if len(strain_mat) == 0:
+        raise ValueError(f"No strains with finite values found for condition {condition}")
+
+    strain_mat = np.vstack(strain_mat)
+
+    # --- Normalize ("formalize") the values ---
+    if normalize in (None, "none", False):
+        plot_mat = strain_mat.copy()
+        default_cbar_label = "Feature value"
+    elif normalize == "zscore":
+        plot_mat = zscore(strain_mat, axis=0, nan_policy="omit")
+        plot_mat = np.where(np.isfinite(plot_mat), plot_mat, 0.0)
+        default_cbar_label = "Z-score across strains"
+    elif normalize == "double_zscore":
+        plot_mat = zscore(strain_mat, axis=0, nan_policy="omit")
+        plot_mat = np.where(np.isfinite(plot_mat), plot_mat, 0.0)
+        plot_mat = zscore(plot_mat, axis=None)
+        default_cbar_label = "Double z-score"
+    elif normalize == "minmax":
+        col_min = np.nanmin(strain_mat, axis=0)
+        col_max = np.nanmax(strain_mat, axis=0)
+        span = col_max - col_min
+        span[span == 0] = 1.0
+        plot_mat = (strain_mat - col_min) / span
+        plot_mat = np.where(np.isfinite(plot_mat), plot_mat, 0.0)
+        default_cbar_label = "Min-max scaled value"
+    else:
+        raise ValueError('normalize must be "zscore", "double_zscore", "minmax", or None')
+
+    feature_labels = np.array(feature_labels)
+    strain_labels_used = np.array(strain_labels_used)
+
+    # --- Feature ordering ---
+    if cluster_features:
+        link_f = linkage(plot_mat.T, method=cluster_method, metric=cluster_metric)
+        order = leaves_list(link_f)
+        plot_mat = plot_mat[:, order]
+        feature_labels = feature_labels[order]
+    elif sort_features:
+        if sort_by == "variance":
+            sort_metric = np.nanvar(plot_mat, axis=0)
+        elif sort_by == "mean":
+            sort_metric = np.nanmean(plot_mat, axis=0)
+        else:
+            raise ValueError("sort_by must be 'variance' or 'mean'")
+        order = np.argsort(sort_metric)[::-1]  # descending
+        plot_mat = plot_mat[:, order]
+        feature_labels = feature_labels[order]
+
+    # --- Strain ordering ---
+    if cluster_strains:
+        link_s = linkage(plot_mat, method=cluster_method, metric=cluster_metric)
+        order = leaves_list(link_s)
+        plot_mat = plot_mat[order, :]
+        strain_labels_used = strain_labels_used[order]
+
+    plot_df = pd.DataFrame(
+        plot_mat,
+        index=[str(s) for s in strain_labels_used],
+        columns=feature_labels,
+    )
+    plot_df.index.name = "strain"
+
+    # --- Orientation ---
+    if orientation == "vertical":
+        plot_df = plot_df.T
+    elif orientation != "horizontal":
+        raise ValueError('orientation must be "horizontal" or "vertical"')
+
+    if xtick_fontsize is None:
+        xtick_fontsize = font_size
+    if ytick_fontsize is None:
+        ytick_fontsize = font_size
+    if cbar_label is None:
+        cbar_label = default_cbar_label
+
+    # --- Plot ---
+    fig, ax = plt.subplots(figsize=figsize)
+
+    hm = sns.heatmap(
+        plot_df,
+        cmap=cmap,
+        cbar=cbar,
+        vmin=vmin,
+        vmax=vmax,
+        xticklabels=show_xticklabels,
+        yticklabels=show_yticklabels,
+        ax=ax,
+        cbar_kws={
+            "shrink": cbar_shrink,
+            "aspect": cbar_aspect
+        } if cbar else None
+    )
+
+    # --- Colorbar label ---
+    if cbar and cbar_label is not None:
+        hm.collections[0].colorbar.set_label(
+            cbar_label,
+            fontsize=font_size,
+            fontfamily=font_family
+        )
+
+    # --- Title ---
+    if show_title:
+        if title is None:
+            fov_txt = ("FoVs " + ", ".join(str(f) for f in fov_list)) if len(fov_list) > 1 \
+                else f"FoV {fov_list[0]}"
+            title = f"All strains x features — {condition} ({fov_txt})"
+        ax.set_title(
+            title,
+            fontsize=title_size or title_fontsize or font_size,
+            fontfamily=font_family
+        )
+
+    # --- Tick formatting ---
+    if show_xticklabels:
+        ax.set_xticklabels(
+            ax.get_xticklabels(),
+            rotation=xtick_rotation,
+            ha="right" if xtick_rotation not in (0, 90) else "center",
+            rotation_mode="anchor" if xtick_rotation not in (0, 90) else None,
+            fontsize=xtick_fontsize,
+            fontfamily=font_family
+        )
+    if show_yticklabels:
+        ax.set_yticklabels(
+            ax.get_yticklabels(),
+            rotation=ytick_rotation,
+            fontsize=ytick_fontsize,
+            fontfamily=font_family
+        )
+
+    # --- Default label color ---
+    for tick in ax.get_xticklabels():
+        tick.set_color(label_color)
+    for tick in ax.get_yticklabels():
+        tick.set_color(label_color)
+
+    # --- Apply custom colors LAST ---
+    if xtick_colors is not None:
+        if len(xtick_colors) != len(ax.get_xticklabels()):
+            raise ValueError("xtick_colors length mismatch")
+        for tick, color in zip(ax.get_xticklabels(), xtick_colors):
+            tick.set_color(color)
+
+    if ytick_colors is not None:
+        if len(ytick_colors) != len(ax.get_yticklabels()):
+            raise ValueError("ytick_colors length mismatch")
+        for tick, color in zip(ax.get_yticklabels(), ytick_colors):
+            tick.set_color(color)
+
+    # --- Axis labels / styling ---
+    if orientation == "vertical":
+        ax.set_xlabel("Strain (well)", fontsize=font_size, fontfamily=font_family, color=axis_color)
+        ax.set_ylabel("")
+    else:
+        ax.set_xlabel("")
+        ax.set_ylabel("Strain (well)", fontsize=font_size, fontfamily=font_family, color=axis_color)
+
+    for spine in ax.spines.values():
+        spine.set_color(axis_color)
+
+    ax.tick_params(axis="x", color=axis_color)
+    ax.tick_params(axis="y", color=axis_color)
+
+    plt.tight_layout()
+    plt.show()
+
+    if save:
+        if figtitle is None:
+            figtitle = f"all_strain_feature_heatmap_{condition}_fov" + "_".join(str(f) for f in fov_list)
+        fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".svg", bbox_inches="tight")
+        fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".pdf", bbox_inches="tight")
+        fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".png", bbox_inches="tight")
+
+    return fig, ax, plot_df
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def _well_fov_cube(matrix, n_wells=96, n_fovs=9, dead_ids=None):
+    """
+    Reshape a (n_wells * n_fovs, n_features) condition matrix into
+    (n_fovs, n_strains_kept, n_features).
+
+    Rows are laid out as well + fov * n_wells, matching build_training_data.
+    Dead wells are dropped by well identity, so the same wells are removed from
+    every FoV.
+
+    Returns
+    -------
+    cube  : (n_fovs, n_strains_kept, n_features) float array
+    keep  : (n_strains_kept,) int array of well indices retained
+    """
+    matrix = np.asarray(matrix, dtype=float)
+    n_features = matrix.shape[1]
+
+    cube = np.full((n_fovs, n_wells, n_features), np.nan)
+    for fov in range(n_fovs):
+        lo = fov * n_wells
+        cube[fov] = matrix[lo: lo + n_wells, :]
+
+    if dead_ids:
+        dead_wells = sorted({int(r) % n_wells for r in dead_ids})
+        keep = np.array([w for w in range(n_wells) if w not in dead_wells])
+    else:
+        keep = np.arange(n_wells)
+
+    return cube[:, keep, :], keep
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def _icc_oneway(Y):
+    """
+    One-way random-effects ICC, vectorized over any trailing axes.
+
+    Y : (n_fovs, n_strains) for a single feature, or
+        (n_fovs, n_strains, n_features) for a whole condition at once.
+    Strains (wells) are the random factor, FoVs are technical replicates.
+
+    Returns
+    -------
+    icc_single : ICC(1,1) — the fraction of the variance in ONE FoV measurement
+                 that is strain-level rather than field-to-field noise
+    icc_mean   : ICC(1,k) — reliability of the strain mean over all k FoVs
+                 (the Spearman-Brown stepped-up version of ICC(1,1))
+    fstat      : MS_between / MS_within, the one-way ANOVA F statistic
+    msb, msw   : the two mean squares
+
+    This is the bias-corrected version of a between/within variance ratio: the
+    naive ratio uses var(strain means), whose expectation is
+    sigma_between^2 + sigma_within^2 / k, so it counts a 1/k share of the
+    technical noise as strain signal — worst for the weakest features.
+    """
+    Y = np.asarray(Y, dtype=float)
+    k, n = Y.shape[0], Y.shape[1]
+
+    if k < 2 or n < 2:
+        raise ValueError("ICC needs at least 2 FoVs and 2 strains")
+
+    grand = np.nanmean(Y, axis=(0, 1))
+    strain_means = np.nanmean(Y, axis=0)
+
+    msb = k * np.nansum((strain_means - grand) ** 2, axis=0) / (n - 1)
+    msw = np.nansum((Y - strain_means[None, ...]) ** 2, axis=(0, 1)) / (n * (k - 1))
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        bad = ~np.isfinite(msb) | ~np.isfinite(msw) | (msw <= 0)
+        icc_single = (msb - msw) / (msb + (k - 1) * msw)
+        icc_mean = (msb - msw) / msb
+        fstat = msb / msw
+
+    icc_single = np.where(bad, np.nan, icc_single)
+    icc_mean = np.where(bad, np.nan, icc_mean)
+    fstat = np.where(bad, np.nan, fstat)
+
+    return icc_single, icc_mean, fstat, msb, msw
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def _spearman_columns(A, B):
+    """
+    Column-wise Spearman correlation between two (n_strains, n_features) arrays.
+    Returns a (n_features,) array.
+    """
+    A = np.asarray(A, dtype=float)
+    B = np.asarray(B, dtype=float)
+
+    ra = stats.rankdata(A, axis=0).astype(float)
+    rb = stats.rankdata(B, axis=0).astype(float)
+
+    ra = ra - ra.mean(axis=0)
+    rb = rb - rb.mean(axis=0)
+
+    denom = np.sqrt((ra ** 2).sum(axis=0) * (rb ** 2).sum(axis=0))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rho = (ra * rb).sum(axis=0) / denom
+    return np.where(np.isfinite(rho), rho, np.nan)
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def compute_feature_icc(
+    training_data,
+    training_feature_labels,
+    condition_order=None,
+    n_wells=96,
+    n_fovs=None,
+    dead_ids=None,
+    n_permutations=0,
+    n_split_half_repeats=100,
+    icc_threshold=0.8,
+    random_state=42,
+):
+    """
+    How much of each feature's variance is strain-level rather than FoV noise?
+
+    For every (feature, condition) pair this runs a one-way random-effects ANOVA
+    with wells (= strains) as the random factor and the FoVs as technical
+    replicates, and reports ICC(1,1). Features with a high ICC separate strains;
+    features with a low ICC are dominated by field-to-field noise and cannot
+    support a screen no matter how many strains you measure.
+
+    It also reports how consistently each feature ranks strains ACROSS
+    conditions (cross_condition_rho), which is the complementary question: a
+    feature can be highly reliable within a condition and still reshuffle the
+    strain ranking between environments, and those two properties support
+    different kinds of screen.
+
+    Parameters
+    ----------
+    training_data : dict[str, np.ndarray]
+        Condition -> array of shape (n_wells * n_fovs, n_features).
+        Usually training_data_finite or training_data_hu_log.
+    training_feature_labels : list[str]
+        Labels returned by build_training_data(...).
+    condition_order : list[str] or None
+        Conditions to analyze. None -> every key in training_data.
+    n_fovs : int or None
+        FoVs per well. None -> inferred from the row count.
+    dead_ids : list[int] or None
+        Expanded dead row indices; the corresponding wells are dropped.
+    n_permutations : int
+        Permutation test for the F statistic, shuffling measurements across
+        strains within each feature. 0 skips it (fast). 500 reproduces the
+        original reliability analysis; the p-value floor is 1/(n_permutations+1).
+    n_split_half_repeats : int
+        Repeats for the split-half check (Spearman correlation of strain
+        rankings between disjoint halves of the FoVs, stepped up by
+        Spearman-Brown). 0 skips it.
+    icc_threshold : float
+        Bar used to classify features as always / conditionally / never usable.
+
+    Returns
+    -------
+    icc_results : dict
+        icc_single           (n_features, n_conditions) ICC(1,1)
+        icc_mean             (n_features, n_conditions) ICC(1,k) of the FoV mean
+        fstat, pvalue        (n_features, n_conditions)
+        split_half           (n_features, n_conditions)
+        mean_icc, min_icc, max_icc, cross_condition_rho   (n_features,)
+        best_condition, worst_condition                   (n_features,) labels
+        always / conditional / never                      lists of feature labels
+        table                pd.DataFrame, one row per feature, sorted by mean ICC
+        labels, conditions, n_strains, n_fovs, icc_threshold
+    """
+    rng = np.random.default_rng(random_state)
+
+    if condition_order is None:
+        condition_order = list(training_data.keys())
+
+    n_features = len(training_feature_labels)
+    n_cond = len(condition_order)
+
+    example = np.asarray(training_data[condition_order[0]], dtype=float)
+    if example.shape[1] != n_features:
+        raise ValueError(
+            f"training_feature_labels has length {n_features} but "
+            f"training_data['{condition_order[0]}'] has {example.shape[1]} columns"
+        )
+    if n_fovs is None:
+        n_fovs = example.shape[0] // n_wells
+
+    out = {
+        key: np.full((n_features, n_cond), np.nan)
+        for key in ("icc_single", "icc_mean", "fstat", "pvalue", "split_half")
+    }
+    strain_means_by_cond = {}
+    n_strains = None
+
+    for ci, cond in enumerate(condition_order):
+        cube, keep = _well_fov_cube(training_data[cond], n_wells, n_fovs, dead_ids)
+        n_strains = len(keep)
+        strain_means_by_cond[cond] = np.nanmean(cube, axis=0)
+
+        icc1, icck, f, _, _ = _icc_oneway(cube)
+        out["icc_single"][:, ci] = icc1
+        out["icc_mean"][:, ci] = icck
+        out["fstat"][:, ci] = f
+
+        # --- permutation null: break the strain labels, keep the values ---
+        if n_permutations:
+            flat = cube.reshape(n_fovs * n_strains, n_features)
+            hits = np.zeros(n_features)
+            for _ in range(n_permutations):
+                shuffled = rng.permuted(flat, axis=0)
+                f_null = _icc_oneway(shuffled.reshape(n_fovs, n_strains, n_features))[2]
+                hits += np.where(np.isfinite(f_null) & (f_null >= f), 1.0, 0.0)
+            out["pvalue"][:, ci] = (hits + 1) / (n_permutations + 1)
+
+        # --- split-half reproducibility of the strain ranking ---
+        half = n_fovs // 2
+        if n_split_half_repeats and half >= 1:
+            rs = np.full((n_split_half_repeats, n_features), np.nan)
+            for r in range(n_split_half_repeats):
+                idx = rng.permutation(n_fovs)
+                a = np.nanmean(cube[idx[:half]], axis=0)
+                b = np.nanmean(cube[idx[half: 2 * half]], axis=0)
+                rs[r] = _spearman_columns(a, b)
+            raw = np.nanmedian(rs, axis=0)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                stepped = 2 * raw / (1 + raw)
+            out["split_half"][:, ci] = np.where(raw > -1, stepped, np.nan)
+
+    # --- does a feature rank strains the same way in every environment? ---
+    cross_rho = np.full(n_features, np.nan)
+    if n_cond > 1:
+        pair_rhos = []
+        for i in range(n_cond):
+            for j in range(i + 1, n_cond):
+                pair_rhos.append(
+                    _spearman_columns(
+                        strain_means_by_cond[condition_order[i]],
+                        strain_means_by_cond[condition_order[j]],
+                    )
+                )
+        cross_rho = np.nanmean(np.vstack(pair_rhos), axis=0)
+
+    icc = out["icc_single"]
+    mean_icc = np.nanmean(icc, axis=1)
+    min_icc = np.nanmin(icc, axis=1)
+    max_icc = np.nanmax(icc, axis=1)
+    conditions_arr = np.array(condition_order, dtype=object)
+    best_condition = conditions_arr[np.nanargmax(np.nan_to_num(icc, nan=-np.inf), axis=1)]
+    worst_condition = conditions_arr[np.nanargmin(np.nan_to_num(icc, nan=np.inf), axis=1)]
+
+    passes = icc > icc_threshold
+    labels_arr = np.array(training_feature_labels, dtype=object)
+    always = list(labels_arr[passes.all(axis=1)])
+    never = list(labels_arr[~passes.any(axis=1)])
+    conditional = list(labels_arr[passes.any(axis=1) & ~passes.all(axis=1)])
+
+    table = pd.DataFrame({
+        "feature": list(training_feature_labels),
+        "mean_icc": mean_icc,
+        "min_icc": min_icc,
+        "max_icc": max_icc,
+        "best_condition": best_condition,
+        "worst_condition": worst_condition,
+        "icc_mean_of_fovs": np.nanmean(out["icc_mean"], axis=1),
+        "split_half": np.nanmean(out["split_half"], axis=1),
+        "max_pvalue": np.nanmax(out["pvalue"], axis=1) if n_permutations else np.nan,
+        "cross_condition_rho": cross_rho,
+        "n_conditions_passing": passes.sum(axis=1),
+    }).sort_values("mean_icc", ascending=False).reset_index(drop=True)
+
+    out.update({
+        "labels": list(training_feature_labels),
+        "conditions": list(condition_order),
+        "mean_icc": mean_icc,
+        "min_icc": min_icc,
+        "max_icc": max_icc,
+        "best_condition": best_condition,
+        "worst_condition": worst_condition,
+        "cross_condition_rho": cross_rho,
+        "passes_per_feature": passes.sum(axis=1),
+        "passes_per_condition": passes.sum(axis=0),
+        "always": always,
+        "conditional": conditional,
+        "never": never,
+        "table": table,
+        "n_strains": n_strains,
+        "n_fovs": n_fovs,
+        "icc_threshold": icc_threshold,
+    })
+    return out
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def plot_feature_icc_heatmap(
+    icc_results,
+    metric="icc_single",          # "icc_single", "icc_mean", "split_half", "cross_condition_rho"
+    column="mean",                # "mean", a single condition name, or "per_condition"
+    sort_features=True,
+    ascending=False,
+    top_n=None,
+    exclude_features=None,
+    include_features=None,
+    exclude_channels=None,
+    col_titles=None,
+    figsize=(2, 12),
+    cmap="apc:verde",
+    vmin=0,
+    vmax=1,
+    icc_threshold=None,           # outline cells at or below this value
+    threshold_color="black",
+    threshold_lw=0.6,
+    annot=True,
+    annot_fontsize=8,
+    annot_fmt=".2f",
+    annot_color="auto",           # "auto" picks black or white per cell, or pass a color
+    linewidths=0,
+    linecolor="white",
+    title=None,
+    show_title=False,
+    title_fontsize=14,
+    font_family=None,
+    font_size=10,
+    title_size=None,
+    xtick_fontsize=None,
+    ytick_fontsize=None,
+    xtick_rotation=45,
+    ytick_rotation=0,
+    show_xticklabels=False,
+    show_yticklabels=True,
+    axis_color="black",
+    label_color="black",
+    xtick_colors=None,
+    ytick_colors=None,
+    cbar=False,                   # no colorbar by default
+    cbar_label=None,
+    cbar_shrink=1.0,
+    cbar_aspect=30,
+    save=False,
+    figtitle="feature_icc_heatmap",
+):
+    """
+    Single-column heatmap of per-feature reliability, sorted by ICC.
+
+    Parameters
+    ----------
+    icc_results : dict
+        Output of compute_feature_icc(...).
+    metric : str
+        "icc_single"           ICC(1,1), reliability of one FoV (default)
+        "icc_mean"             ICC(1,k), reliability of the strain mean
+        "split_half"           split-half reproducibility of the strain ranking
+        "cross_condition_rho"  consistency of the strain ranking across conditions
+    column : str
+        "mean"            one column, averaged over conditions (default)
+        a condition name  one column, that condition only (e.g. "l_stat_30")
+        "per_condition"   one column per condition
+    sort_features : bool
+        Sort features by the plotted value (descending unless ascending=True).
+        With column="per_condition", sorting uses the row mean.
+    top_n : int or None
+        Keep only the top_n features after sorting.
+    exclude_features / include_features / exclude_channels
+        Same matching rules as plot_all_strain_feature_heatmap.
+    icc_threshold : float or None
+        Outline every cell at or below this value. None -> use the threshold
+        stored in icc_results.
+    cbar : bool
+        Off by default — the figure is the heatmap alone.
+
+    Returns
+    -------
+    fig, ax, plot_df
+    """
+    labels = icc_results["labels"]
+    conditions = icc_results["conditions"]
+
+    # --- pick the metric ---
+    if metric == "cross_condition_rho":
+        values = np.asarray(icc_results["cross_condition_rho"], dtype=float)[:, None]
+        value_conditions = ["across conditions"]
+        default_label = "Cross-condition Spearman rho"
+    elif metric in ("icc_single", "icc_mean", "split_half"):
+        values = np.asarray(icc_results[metric], dtype=float)
+        value_conditions = list(conditions)
+        default_label = {
+            "icc_single": "ICC(1,1)  (strain variance / total variance)",
+            "icc_mean": f"ICC(1,{icc_results.get('n_fovs', 'k')})  (reliability of the strain mean)",
+            "split_half": "Split-half rho (Spearman-Brown)",
+        }[metric]
+    else:
+        raise ValueError(
+            'metric must be "icc_single", "icc_mean", "split_half", or "cross_condition_rho"'
+        )
+
+    # --- pick the column(s) ---
+    if metric == "cross_condition_rho" or column == "mean":
+        if metric == "cross_condition_rho":
+            plot_values = values
+            column_titles = value_conditions
+        else:
+            plot_values = np.nanmean(values, axis=1, keepdims=True)
+            column_titles = ["mean"]
+    elif column == "per_condition":
+        plot_values = values
+        column_titles = list(col_titles) if col_titles is not None else value_conditions
+    elif column in value_conditions:
+        ci = value_conditions.index(column)
+        plot_values = values[:, [ci]]
+        column_titles = [column]
+    else:
+        raise ValueError(
+            f'column must be "mean", "per_condition", or one of {value_conditions}'
+        )
+
+    if len(column_titles) != plot_values.shape[1]:
+        raise ValueError("col_titles length does not match the number of columns plotted")
+
+    # --- feature filtering ---
+    feat_idx, feature_labels = _select_feature_indices(
+        labels,
+        exclude_features=exclude_features,
+        include_features=include_features,
+        exclude_channels=exclude_channels,
+    )
+    plot_values = plot_values[feat_idx, :]
+    feature_labels = np.array(feature_labels, dtype=object)
+
+    # --- sorting ---
+    if sort_features:
+        sort_metric = np.nanmean(plot_values, axis=1)
+        order = np.argsort(np.nan_to_num(sort_metric, nan=-np.inf))
+        if not ascending:
+            order = order[::-1]
+        plot_values = plot_values[order, :]
+        feature_labels = feature_labels[order]
+
+    if top_n is not None:
+        plot_values = plot_values[:top_n, :]
+        feature_labels = feature_labels[:top_n]
+
+    plot_df = pd.DataFrame(plot_values, index=feature_labels, columns=column_titles)
+    plot_df.index.name = "feature"
+
+    if xtick_fontsize is None:
+        xtick_fontsize = font_size
+    if ytick_fontsize is None:
+        ytick_fontsize = font_size
+    if cbar_label is None:
+        cbar_label = default_label
+    if icc_threshold is None:
+        icc_threshold = icc_results.get("icc_threshold", None)
+
+    # --- Plot ---
+    fig, ax = plt.subplots(figsize=figsize)
+
+    hm = sns.heatmap(
+        plot_df,
+        cmap=cmap,
+        cbar=cbar,
+        vmin=vmin,
+        vmax=vmax,
+        annot=annot,
+        fmt=annot_fmt,
+        annot_kws={"fontsize": annot_fontsize} if annot else None,
+        linewidths=linewidths,
+        linecolor=linecolor,
+        xticklabels=show_xticklabels,
+        yticklabels=show_yticklabels,
+        ax=ax,
+        cbar_kws={
+            "shrink": cbar_shrink,
+            "aspect": cbar_aspect
+        } if cbar else None
+    )
+
+    # --- Colorbar label ---
+    if cbar and cbar_label is not None:
+        hm.collections[0].colorbar.set_label(
+            cbar_label,
+            fontsize=font_size,
+            fontfamily=font_family
+        )
+        # --- Annotation color: "auto" keeps the number legible on any cell ---
+    if annot:
+        mesh = hm.collections[0]
+        for text in ax.texts:
+            if annot_color != "auto":
+                text.set_color(annot_color)
+                continue
+            xi, yi = text.get_position()
+            value = plot_df.to_numpy(dtype=float)[int(yi), int(xi)]
+            if not np.isfinite(value):
+                continue
+            r, g, b = mesh.cmap(mesh.norm(value))[:3]
+            luminance = 0.299 * r + 0.587 * g + 0.114 * b
+            text.set_color("black" if luminance > 0.55 else "white")
+
+    # --- Mark the cells that fail the reliability bar ---
+    if icc_threshold is not None:
+        M = plot_df.to_numpy(dtype=float)
+        for yi in range(M.shape[0]):
+            for xi in range(M.shape[1]):
+                if np.isfinite(M[yi, xi]) and M[yi, xi] <= icc_threshold:
+                    ax.add_patch(plt.Rectangle(
+                        (xi, yi), 1, 1, fill=False,
+                        edgecolor=threshold_color, lw=threshold_lw
+                    ))
+
+    # --- Title ---
+    if show_title:
+        if title is None:
+            title = default_label
+        ax.set_title(
+            title,
+            fontsize=title_size or title_fontsize or font_size,
+            fontfamily=font_family
+        )
+
+    # --- Tick formatting ---
+    if show_xticklabels:
+        ax.set_xticklabels(
+            ax.get_xticklabels(),
+            rotation=xtick_rotation,
+            ha="right" if xtick_rotation not in (0, 90) else "center",
+            rotation_mode="anchor" if xtick_rotation not in (0, 90) else None,
+            fontsize=xtick_fontsize,
+            fontfamily=font_family
+        )
+    if show_yticklabels:
+        ax.set_yticklabels(
+            ax.get_yticklabels(),
+            rotation=ytick_rotation,
+            fontsize=ytick_fontsize,
+            fontfamily=font_family
+        )
+
+    # --- Default label color ---
+    for tick in ax.get_xticklabels():
+        tick.set_color(label_color)
+    for tick in ax.get_yticklabels():
+        tick.set_color(label_color)
+
+    # --- Apply custom colors LAST ---
+    if xtick_colors is not None:
+        if len(xtick_colors) != len(ax.get_xticklabels()):
+            raise ValueError("xtick_colors length mismatch")
+        for tick, color in zip(ax.get_xticklabels(), xtick_colors):
+            tick.set_color(color)
+
+    if ytick_colors is not None:
+        if len(ytick_colors) != len(ax.get_yticklabels()):
+            raise ValueError("ytick_colors length mismatch")
+        for tick, color in zip(ax.get_yticklabels(), ytick_colors):
+            tick.set_color(color)
+
+    # --- Axis styling ---
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+
+    for spine in ax.spines.values():
+        spine.set_color(axis_color)
+
+    ax.tick_params(axis="x", color=axis_color)
+    ax.tick_params(axis="y", color=axis_color)
+
+    plt.tight_layout()
+    plt.show()
+
+    if save:
+        fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".svg", bbox_inches="tight")
+        fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".pdf", bbox_inches="tight")
+        fig.savefig("plots/chlorella_pub_fig_" + figtitle + ".png", bbox_inches="tight")
+
+    return fig, ax, plot_df
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+import numpy as np
+from cvp_baseline_additions import (
+    compare_models_condition_holdout_cv_recalibrated as compare,
+    summarize_interaction_capture,
+)
+
+rng = np.random.default_rng(0)
+N_STRAIN, N_FOV, N_FEAT = 96, 9, 10
+CONDS = ["16_e", "22_e", "30_e", "16_l", "22_l", "30_l"]
+temp = np.array([16, 22, 30, 16, 22, 30], dtype=float)
+temp_z = (temp - temp.mean()) / temp.std()
+
+def simulate(interaction_scale, structured, env_scale=3.0, noise=0.3):
+    """structured=True -> strain-specific slope in temperature (learnable)
+       structured=False -> independent strain x condition deviations (not learnable)"""
+    strain = rng.normal(0, 1, (N_STRAIN, N_FEAT))
+    env = rng.normal(0, env_scale, (len(CONDS), N_FEAT))
+    if structured:
+        slope = rng.normal(0, 1, (N_STRAIN, N_FEAT))
+        inter = slope[None] * temp_z[:, None, None]
+    else:
+        inter = rng.normal(0, 1, (len(CONDS), N_STRAIN, N_FEAT))
+    data, groups = {}, np.repeat(np.arange(N_STRAIN), N_FOV)
+    for c_i, c in enumerate(CONDS):
+        vals = strain + env[c_i] + interaction_scale * inter[c_i]
+        vals = np.repeat(vals, N_FOV, axis=0) + rng.normal(0, noise, (N_STRAIN*N_FOV, N_FEAT))
+        data[c] = vals
+    return data, groups
+
+def run(label, **kw):
+    data, groups = simulate(**kw)
+    res = compare(data, exp_conditions=CONDS, ridge_alpha=10, n_splits=8, groups=groups)
+    s = summarize_interaction_capture(res, [f"f{i}" for i in range(N_FEAT)])
+    print(f"{label:<44} ridge {s.r2_ridge.mean():+.3f} | recal {s.r2_strain_mean_recal.mean():+.3f} | "
+          f"raw strain_mean {s.r2_strain_mean.mean():+.3f} | global {s.r2_global_mean.mean():+.3f} | "
+          f"captured {s.interaction_captured.mean():+.3f}")
+
