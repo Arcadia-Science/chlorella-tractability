@@ -6,13 +6,18 @@ This folder reproduces every quantitative result and data figure in the pub *Chl
 |---|---|
 | `chlorella_phenotyping_pub_analyses.ipynb` | The analysis, in pub order. All parameters are in one cell at the top. |
 | `cvp_pub.py` | Every function the notebook calls (`import cvp_pub as cvpp`). The header maps each pub result to the functions that compute it. |
-| `requirements.txt` | Python dependencies. |
+| `env.yml` | The exact conda environment used for the analysis (Apple Silicon Mac only). |
+| `env_portable.yml` | The same package versions for any OS, without platform-specific builds. |
+| `requirements.txt` | Unpinned Python dependencies for a plain `pip` install. |
 
 ## Running it
 
 1. Data: the notebook expects `zarrs/` and `jsonls/` one level up (`DATA_DIR = ".."`). Point `DATA_DIR` elsewhere if needed. It uses the six mutant experiments (16/22/30 °C × early/late stationary) and the wild-type plate (`20251209_091846_235`).
-2. `pip install -r requirements.txt`
-3. Open the notebook and run all cells.
+2. Set up the Python environment. Pick one:
+   * **Apple Silicon Mac, exact environment:** `conda env create -f env.yml`, then `conda activate hina1`.
+   * **Any OS:** `conda env create -f env_portable.yml`, then `conda activate chlorella-pub`.
+   * **pip only:** `pip install -r requirements.txt` (Python 3.11 or later; versions not pinned).
+3. Open the notebook with that environment's kernel and run all cells.
 
 Outputs:
 
