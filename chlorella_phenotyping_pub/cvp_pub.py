@@ -820,6 +820,21 @@ def plot_tsne(input_dat,
     return pd.Series(zscore(input_dat[:,feat_2_color_by])).quantile(.95)
 
 
+# standalone colorbar export (same style as the t-SNE colorbars)
+def _save_standalone_cbar(mesh, figtitle, cbar_label=None):
+    """Save a horizontal colorbar matching `mesh` (cmap + vmin/vmax) as its own
+    svg/pdf/png: plots/chlorella_pub_fig_<figtitle>_cbar.*"""
+    cfig, cax = plt.subplots(figsize=(3.5, 0.25))
+    cb = cfig.colorbar(plt.cm.ScalarMappable(norm=mesh.norm, cmap=mesh.cmap),
+                       cax=cax, orientation="horizontal")
+    cb.set_label(cbar_label or "")
+    cb.ax.xaxis.set_label_position("top")
+    base = 'plots/chlorella_pub_fig_' + figtitle + '_cbar'
+    for ext in ("svg", "pdf", "png"):
+        cfig.savefig(base + '.' + ext, bbox_inches='tight')
+    plt.close(cfig)
+
+
 # source: cvp.py  (originally `plot_sorted_r2_per_feature`)
 def _cvp_plot_sorted_r2_per_feature(
     ridge_model_residulals,
@@ -857,6 +872,7 @@ def _cvp_plot_sorted_r2_per_feature(
     cbar_label=None,
     cbar_shrink=1.0,
     cbar_aspect=30,
+    save_cbar_separately=False,
 ):
     """
     Plot per-feature R² values from condition_holdout_permutation_test or related output.
@@ -929,6 +945,9 @@ def _cvp_plot_sorted_r2_per_feature(
         Colorbar shrink factor.
     cbar_aspect : int
         Colorbar aspect ratio (higher = skinnier).
+    save_cbar_separately : bool
+        If True, also save a standalone horizontal colorbar to
+        plots/chlorella_pub_fig_<figtitle>_cbar.{svg,pdf,png}.
 
     Returns
     -------
@@ -1011,6 +1030,10 @@ def _cvp_plot_sorted_r2_per_feature(
             fontsize=font_size,
             fontfamily=font_family
         )
+
+    # Standalone colorbar file
+    if save_cbar_separately:
+        _save_standalone_cbar(hm.collections[0], figtitle, cbar_label)
 
     # Annotation styling
     if annot:
@@ -3412,6 +3435,7 @@ def _cvp_plot_feature_icc_heatmap(
     cbar_label=None,
     cbar_shrink=1.0,
     cbar_aspect=30,
+    save_cbar_separately=False,  # also save a standalone colorbar file
     save=False,
     figtitle="feature_icc_heatmap",
 ):
@@ -3557,6 +3581,9 @@ def _cvp_plot_feature_icc_heatmap(
             fontsize=font_size,
             fontfamily=font_family
         )
+    # --- Standalone colorbar file ---
+    if save_cbar_separately:
+        _save_standalone_cbar(hm.collections[0], figtitle, cbar_label)
         # --- Annotation color: "auto" keeps the number legible on any cell ---
     if annot:
         mesh = hm.collections[0]
@@ -7429,4 +7456,272 @@ def plot_strain_cell_grid(
             fig.savefig(f"plots/chlorella_pub_fig_{figtitle}.{ext}",
                         bbox_inches="tight", dpi=300)
 
+    return fig, axes
+
+
+# ==============================================================================================================
+# WILD-TYPE PLATE AS A POSITION-ONLY REFERENCE
+# ==============================================================================================================
+#
+# Every mutant plate uses the same layout, so a strain and its well position are
+# perfectly confounded: a gradient shared by all plates looks exactly like a
+# strain main effect. The wild-type plate breaks the confound. All of its wells
+# carry the same genotype, so any row/column structure on it is position alone.
+
+def _rc_surface_fraction(values, rr, cc, plate_rows, plate_cols):
+    """Median-polish one plate. Returns (frac_position, fitted surface at every
+    plate position as a (plate_rows, plate_cols) grid), or (nan, None)."""
+    grid = np.full((plate_rows, plate_cols), np.nan)
+    grid[rr, cc] = values
+    total = np.nanvar(grid)
+    if not np.isfinite(total) or total <= 0:
+        return np.nan, None
+    _, reff, ceff, resid = _median_polish(grid)
+    return float(1 - np.nanvar(resid) / total), reff[:, None] + ceff[None, :]
+
+
+def _r2_from_reference(target, reference):
+    """R^2 of a least-squares line predicting `target` from `reference`."""
+    ok = np.isfinite(target) & np.isfinite(reference)
+    if ok.sum() < 3 or np.std(reference[ok]) == 0 or np.std(target[ok]) == 0:
+        return np.nan
+    return float(np.corrcoef(target[ok], reference[ok])[0, 1] ** 2)
+
+
+def wt_plate_gradient_reference(
+    mutant_data, wt_data, exp_conditions, training_feature_labels,
+    n_wells=96, n_fovs=9, dead_ids=None, wt_dead_wells=None,
+    plate_rows=8, plate_cols=12, layout="row_major",
+    mutant_reference_condition=None, n_null=200, random_state=0,
+):
+    """
+    Use the wild-type plate to measure plate position on its own, then ask how
+    much of the mutant strain differences that position could account for.
+
+    Per feature:
+
+    wt_frac_position / wt_null_frac_position / wt_excess_position
+        Fraction of the WT plate's well-to-well variance taken by additive row
+        and column effects (median polish), the same quantity under a null that
+        shuffles WT wells across plate positions, and the difference. The null
+        matters: an 8 x 12 row + column fit absorbs some variance even when
+        there is no spatial structure. Excess > 0 means the WT plate has a real
+        positional gradient.
+
+    mut_frac_position
+        The same fraction for the mutant strain main effect (each condition
+        centred, then averaged across `exp_conditions`). This is confounded with
+        genotype; it is reported only for comparison with the WT value.
+
+    surface_r
+        Pearson correlation, across live wells, between the WT fitted surface and
+        the mutant fitted surface. Positive and large means the mutant plates
+        carry the same gradient as the WT plate.
+
+    r2_mut_from_wt_surface / null_r2_mut_from_wt_surface / excess_r2_mut_from_wt_surface
+        Fraction of the mutant strain main effect predicted by the WT surface
+        alone (a straight-line fit, so differences in scale between plates do
+        not matter), the null obtained by shuffling the WT wells before fitting
+        the surface, and the difference. This is the unconfounded estimate of
+        how much apparent strain variation is plate position.
+
+    null_r2_95 / p_r2 / q_r2
+        95th percentile of the shuffled R² values (the per-feature threshold for
+        p < 0.05 before correction), a one-sided permutation p-value
+        (1 + #null >= observed) / (1 + n_null), and Benjamini-Hochberg q-values
+        across features. With n_null shuffles the smallest attainable p is
+        1 / (n_null + 1), so use at least 1,000 when correcting across 40
+        features.
+
+    r2_ref_from_wt_surface
+        As above but for one mutant condition (`mutant_reference_condition`,
+        e.g. the plate grown and imaged like the WT plate), if given.
+
+    Caveat: the WT plate was grown and imaged on a different day from the
+    mutant plates. A gradient that changed between runs (for example, a plate
+    moved to another shelf) would lower these numbers without meaning the
+    mutant plates are free of position effects.
+    """
+    mut_dead = {int(d) % n_wells for d in (dead_ids or [])}
+    wt_dead = {int(w) for w in (wt_dead_wells or [])}
+    wt_alive = np.array([w for w in range(n_wells) if w not in wt_dead])
+    both_alive = np.array([w for w in range(n_wells) if w not in wt_dead | mut_dead])
+    rr, cc = _well_to_rc(np.arange(n_wells), plate_rows, plate_cols, layout)
+
+    def _means(M):
+        M = np.asarray(M, dtype=float)
+        return np.array([np.nanmean(M[_well_rows(w, n_wells, n_fovs)], axis=0)
+                         for w in range(n_wells)])
+
+    wt_means = _means(wt_data)
+    mut_means = {c: _means(mutant_data[c]) for c in exp_conditions}
+
+    rng = np.random.default_rng(random_state)
+    rows = []
+    for j, name in enumerate(training_feature_labels):
+        # WT plate: position only
+        wt_vals = np.full(n_wells, np.nan)
+        wt_vals[wt_alive] = wt_means[wt_alive, j]
+        wt_frac, wt_surf = _rc_surface_fraction(wt_vals, rr, cc, plate_rows, plate_cols)
+        if wt_surf is None:
+            continue
+
+        # mutant strain main effect (environment main effect removed per condition)
+        centred = np.vstack([mut_means[c][:, j] - np.nanmean(mut_means[c][both_alive, j])
+                             for c in exp_conditions])
+        shared = np.full(n_wells, np.nan)
+        shared[both_alive] = centred[:, both_alive].mean(axis=0)
+        mut_frac, mut_surf = _rc_surface_fraction(shared, rr, cc, plate_rows, plate_cols)
+
+        wt_at_wells = wt_surf[rr[both_alive], cc[both_alive]]
+        surface_r = (float(np.corrcoef(wt_at_wells, mut_surf[rr[both_alive], cc[both_alive]])[0, 1])
+                     if mut_surf is not None and np.std(wt_at_wells) > 0 else np.nan)
+        r2 = _r2_from_reference(shared[both_alive], wt_at_wells)
+
+        r2_ref = np.nan
+        if mutant_reference_condition is not None:
+            r2_ref = _r2_from_reference(mut_means[mutant_reference_condition][both_alive, j],
+                                        wt_at_wells)
+
+        # null: shuffle WT wells across plate positions, refit
+        null_frac, null_r2 = [], []
+        for _ in range(n_null):
+            shuffled = np.full(n_wells, np.nan)
+            shuffled[wt_alive] = wt_vals[rng.permutation(wt_alive)]
+            f, s = _rc_surface_fraction(shuffled, rr, cc, plate_rows, plate_cols)
+            if s is None:
+                continue
+            null_frac.append(f)
+            null_r2.append(_r2_from_reference(shared[both_alive], s[rr[both_alive], cc[both_alive]]))
+        null_frac_m = float(np.nanmean(null_frac)) if null_frac else np.nan
+        null_r2 = np.array(null_r2, dtype=float)
+        null_r2 = null_r2[np.isfinite(null_r2)]
+        null_r2_m = float(null_r2.mean()) if null_r2.size else np.nan
+        null_r2_95 = float(np.quantile(null_r2, 0.95)) if null_r2.size else np.nan
+        p_r2 = (float((1 + np.sum(null_r2 >= r2)) / (1 + null_r2.size))
+                if null_r2.size and np.isfinite(r2) else np.nan)
+
+        rows.append({
+            "feature": name,
+            "wt_frac_position": wt_frac,
+            "wt_null_frac_position": null_frac_m,
+            "wt_excess_position": wt_frac - null_frac_m,
+            "wt_position_p": float((1 + np.sum(np.array(null_frac) >= wt_frac)) / (1 + len(null_frac))),
+            "mut_frac_position": mut_frac,
+            "surface_r": surface_r,
+            "r2_mut_from_wt_surface": r2,
+            "null_r2_mut_from_wt_surface": null_r2_m,
+            "excess_r2_mut_from_wt_surface": r2 - null_r2_m,
+            "null_r2_95": null_r2_95,
+            "p_r2": p_r2,
+            "r2_ref_from_wt_surface": r2_ref,
+        })
+    out = pd.DataFrame(rows)
+    out["q_r2"] = np.nan
+    ok = out.p_r2.notna()
+    if ok.any():
+        from statsmodels.stats.multitest import multipletests
+        out.loc[ok, "q_r2"] = multipletests(out.loc[ok, "p_r2"], method="fdr_bh")[1]
+    return out
+
+
+def plot_wt_vs_mutant_plate(
+    mutant_data, wt_data, exp_conditions, feature_index, training_feature_labels,
+    n_wells=96, n_fovs=9, dead_ids=None, wt_dead_wells=None,
+    plate_rows=8, plate_cols=12, layout="row_major", cmap=None,
+    figsize=(10.5, 3.4), font_size=10, save=False, figtitle="wt_vs_mutant_plate",
+):
+    """WT plate next to the mutant strain main effect for one feature, both
+    z-scored across live wells. Same gradient on both = position, not genotype."""
+    if cmap is None:
+        cmap = "RdBu_r"
+    mut_dead = {int(d) % n_wells for d in (dead_ids or [])}
+    wt_dead = {int(w) for w in (wt_dead_wells or [])}
+    rr, cc = _well_to_rc(np.arange(n_wells), plate_rows, plate_cols, layout)
+
+    def _vals(M, dead):
+        M = np.asarray(M, dtype=float)
+        v = np.array([np.nanmean(M[_well_rows(w, n_wells, n_fovs), feature_index])
+                      for w in range(n_wells)])
+        v[sorted(dead)] = np.nan
+        return v
+
+    wt = _vals(wt_data, wt_dead)
+    centred = [(_vals(mutant_data[c], mut_dead | wt_dead)) for c in exp_conditions]
+    centred = np.vstack([v - np.nanmean(v) for v in centred])
+    mut = np.full(n_wells, np.nan)
+    live = np.isfinite(centred).all(axis=0)
+    mut[live] = centred[:, live].mean(axis=0)
+
+    fig, axes = plt.subplots(1, 2, figsize=figsize, constrained_layout=True)
+    name = training_feature_labels[feature_index]
+    for ax, v, title in [(axes[0], wt, f"Wild-type plate — {name}"),
+                         (axes[1], mut, f"Mutant strain effect — {name}")]:
+        z = (v - np.nanmean(v)) / (np.nanstd(v) or 1.0)
+        grid = np.full((plate_rows, plate_cols), np.nan)
+        grid[rr, cc] = z
+        lim = np.nanmax(np.abs(grid))
+        im = ax.imshow(grid, cmap=cmap, vmin=-lim, vmax=lim)
+        ax.set_xticks(range(plate_cols)); ax.set_xticklabels(range(1, plate_cols + 1), fontsize=font_size - 2)
+        ax.set_yticks(range(plate_rows))
+        ax.set_yticklabels([chr(ord("A") + i) for i in range(plate_rows)], fontsize=font_size - 2)
+        ax.set_title(title, fontsize=font_size - 1)
+        fig.colorbar(im, ax=ax, shrink=0.85, label="z-score across wells")
+    plt.show()
+    if save:
+        for ext in ("png", "pdf", "svg"):
+            fig.savefig(f"plots/chlorella_pub_fig_{figtitle}.{ext}", bbox_inches="tight", dpi=300)
+    return fig, axes
+
+
+def plot_wt_gradient_reference(
+    ref_df, label_features=("count (bf)", "count (cy5)", "eccentricity (bf)", "area (bf)"),
+    q_threshold=0.05, figsize=(11, 7.5), font_size=10, color=None,
+    save=False, figtitle="wt_plate_gradient_reference",
+):
+    """
+    Left: positional structure on the WT plate (above the shuffle null) against
+    the same fraction for the mutant strain effect. Right: how much of the mutant
+    strain effect the WT surface predicts. Bars are the observed R², black ticks
+    the per-feature 95th percentile of the shuffle null, and filled bars with an
+    asterisk pass Benjamini-Hochberg correction (q < q_threshold).
+    """
+    if color is None:
+        color = apc.aster
+    fig, axes = plt.subplots(1, 2, figsize=figsize, constrained_layout=True)
+
+    ax = axes[0]
+    ax.scatter(ref_df.mut_frac_position, ref_df.wt_excess_position, s=22, color=color, alpha=0.7, lw=0)
+    ax.axhline(0, color="#999999", ls="--", lw=1)
+    ax.set_xlabel("Mutant strain effect: fraction from row + column\n(confounded with genotype)", fontsize=font_size - 1)
+    ax.set_ylabel("WT plate: fraction from row + column,\nabove shuffle null", fontsize=font_size - 1)
+    for _, r in ref_df[ref_df.feature.isin(label_features)].iterrows():
+        ax.annotate(r.feature, (r.mut_frac_position, r.wt_excess_position), fontsize=font_size - 3,
+                    xytext=(3, 2), textcoords="offset points", color="#444444")
+
+    ax = axes[1]
+    d = ref_df.sort_values("r2_mut_from_wt_surface", ascending=True).reset_index(drop=True)
+    sig = (d.q_r2 < q_threshold).to_numpy() if "q_r2" in d else np.zeros(len(d), bool)
+    y = np.arange(len(d))
+    ax.barh(y, d.r2_mut_from_wt_surface, color=[color if s_ else "#D9D9D9" for s_ in sig],
+            alpha=0.9, height=0.75)
+    if "null_r2_95" in d:
+        ax.scatter(d.null_r2_95, y, marker="|", s=90, color="black", lw=1.4, zorder=3,
+                   label="95th percentile of shuffle null")
+        ax.legend(loc="lower right", fontsize=font_size - 3, frameon=False)
+    for yi, (v, s_, q) in enumerate(zip(d.r2_mut_from_wt_surface, sig, d.get("q_r2", [np.nan] * len(d)))):
+        if s_:
+            ax.annotate(f"* q = {q:.3f}", (v, yi), xytext=(4, 0), textcoords="offset points",
+                        va="center", fontsize=font_size - 3)
+    ax.set_yticks(y); ax.set_yticklabels(d.feature, fontsize=font_size - 4)
+    ax.set_xlim(0, max(d.r2_mut_from_wt_surface.max(), d.get("null_r2_95", d.r2_mut_from_wt_surface).max()) * 1.25)
+    ax.set_xlabel(f"Mutant strain effect predicted by WT surface (R²)\n* = BH q < {q_threshold}", fontsize=font_size - 1)
+    for a in axes:
+        for sp in ("top", "right"):
+            a.spines[sp].set_visible(False)
+        a.tick_params(labelsize=font_size - 2)
+    plt.show()
+    if save:
+        for ext in ("png", "pdf", "svg"):
+            fig.savefig(f"plots/chlorella_pub_fig_{figtitle}.{ext}", bbox_inches="tight", dpi=300)
     return fig, axes
