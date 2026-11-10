@@ -1,0 +1,13 @@
+# Data (download from the BioImage Archive; see main_analyses/README.md)
+zarrs/
+jsonls/
+
+# Notebook outputs
+plots/
+results/
+*.npz
+
+# Python / Jupyter / macOS
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
