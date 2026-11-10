@@ -19,8 +19,8 @@ This folder reproduces every quantitative result and data figure in the pub *Chl
 ## 1. Get the code
 
 ```bash
-git clone https://github.com/Arcadia-Science/2026-chlorella-phenotyping.git
-cd 2026-chlorella-phenotyping
+git clone https://github.com/Arcadia-Science/chlorella-tractability.git
+cd chlorella-tractability
 ```
 
 ## 2. Set up the Python environment
@@ -29,12 +29,12 @@ Pick one:
 
 * **Any OS (recommended):**
   ```bash
-  conda env create -f chlorella_phenotyping_pub/env_portable.yml
+  conda env create -f main_analyses/env_portable.yml
   conda activate chlorella-pub
   ```
 * **Apple Silicon Mac, the exact environment used for the pub:**
   ```bash
-  conda env create -f chlorella_phenotyping_pub/env.yml
+  conda env create -f main_analyses/env.yml
   conda activate hina1
   ```
 
@@ -75,7 +75,7 @@ Put each `.zarr` folder in `zarrs/` and each `.jsonl` file in `jsonls/`. Keep th
 When you're done, the repository should look like this:
 
 ```
-2026-chlorella-phenotyping/
+chlorella-tractability/
 ├── zarrs/
 │   ├── experiment_batches_20251209_091846_235_features.zarr/
 │   ├── experiment_batches_20260105_125955_886_features.zarr/
@@ -84,7 +84,7 @@ When you're done, the repository should look like this:
 │   ├── experiment_batches_20251209_091846_235_features.jsonl
 │   ├── experiment_batches_20260105_125955_886_features.jsonl
 │   └── ... (7 .jsonl files in total)
-└── chlorella_phenotyping_pub/
+└── main_analyses/
     ├── chlorella_phenotyping_pub_analyses.ipynb
     ├── cvp_pub.py
     └── ...
@@ -102,7 +102,7 @@ To keep the data somewhere else (for example on an external drive), set `DATA_DI
 ## 4. Run the notebook
 
 ```bash
-cd chlorella_phenotyping_pub
+cd main_analyses
 jupyter lab chlorella_phenotyping_pub_analyses.ipynb
 ```
 
