@@ -15,6 +15,14 @@ from arcadia_microscopy_tools.operations import (
 from arcadia_microscopy_tools.pipeline import ImageOperation, Pipeline
 from natsort import natsorted
 
+# arcadia-microscopy-tools (pinned to commit e541caa; see README) doesn't know the
+# channel names our Nikon setup writes into the ND2 files ("Cy5 BP", "DIC") and
+# refuses to load them. Register them here, so the installed library doesn't need
+# to be edited by hand. setdefault leaves any existing entry untouched.
+from arcadia_microscopy_tools import microscopy as _amt_microscopy
+for _optical_config, _channel in {"Cy5 BP": "CY5", "DIC": "BF"}.items():
+    _amt_microscopy.NIKON_OPTICAL_CONFIGS_MAP.setdefault(_optical_config, _channel)
+
 #imports: data management
 import json
 import zarr
@@ -135,7 +143,8 @@ def prep_new_segmentation(data_loc, n_ims_w):
 #  Fully updated: channelwise streaming saver + stripper + psutil memory checks
 #  - Saves one channel at a time (no duplicate JSONL records)
 #  - Strips segmentation objects down to ONLY:
-#      mask_image, label_image, intensity_image, cell_outlines, cell_properties
+#      mask_image, label_image, cell_outlines, cell_properties
+#    (intensity_image is not saved: it is identical to the processed intensities)
 #  - Uses Zarr v3-compatible resize (tuple shape) to avoid BoundsCheckError
 #  - Prints memory (RSS) at key points so you can see where it grows
 #  - CHATGPT helped a TON with this section (mostly the stream and save function)
@@ -151,45 +160,92 @@ def mem_gb(label=""):
 def ch_name(ch):
     return getattr(ch, "name", str(ch))
 
+# Channel names as they can appear in ND2 metadata or in arcadia_microscopy_tools,
+# grouped by the channel they mean (all upper-case). Our ND2 files call the two
+# channels "Cy5 BP" and "DIC"; the code calls them CY5 and BF.
+CHANNEL_NAME_ALIASES = {
+    "BF": {"BF", "DIC", "DIC 40X", "MONO", "BRIGHTFIELD", "BRIGHT FIELD"},
+    "CY5": {"CY5", "CY5 BP", "640 NM"},
+}
+
+
+def _canonical_channel_name(name):
+    """Map a channel name (e.g. 'Cy5 BP', 'DIC', Channel.BF) to 'BF' / 'CY5', or None."""
+    n = ch_name(name).strip().upper()
+    if n.startswith("CHANNEL."):
+        n = n[len("CHANNEL."):]
+    for canonical, aliases in CHANNEL_NAME_ALIASES.items():
+        if n in aliases:
+            return canonical
+    return None
+
+
+def _image_channel_names(img):
+    """
+    Channel names in plane order for one image, or None if they can't be found.
+
+    Order of preference:
+      1. img.channels: the arcadia_microscopy_tools mapping, which is also what
+         apply_pipeline/segment use, so raw planes stay consistent with the
+         processed images and masks;
+      2. per-channel metadata (img.metadata.image.channel_metadata_list);
+      3. channel names read directly from the ND2 file, if the image knows its path.
+    """
+    try:
+        chs = getattr(img, "channels", None)
+        if chs:
+            return [ch_name(c) for c in chs]
+    except Exception:
+        pass
+
+    try:
+        cml = img.metadata.image.channel_metadata_list
+        names = [ch_name(cm.channel) for cm in cml]
+        if names:
+            return names
+    except Exception:
+        pass
+
+    path = getattr(img, "path", None) or getattr(img, "nd2_path", None)
+    if path is not None:
+        try:
+            import nd2
+            with nd2.ND2File(path) as f:
+                return [c.channel.name for c in f.metadata.channels]
+        except Exception:
+            pass
+    return None
+
+
 def _channel_index_from_image(img, channel):
     """
-    Try to infer which plane in img.intensities corresponds to the requested channel.
-    Works with Channel enums or channel-name strings when metadata exposes names.
-    Falls back to common 2-channel BF/CY5 ordering.
+    Index of the plane in img.intensities that holds `channel`.
+
+    Channel names are matched through CHANNEL_NAME_ALIASES, so "Cy5 BP" counts as
+    CY5 and "DIC" as BF. If the channel can't be identified, this raises instead
+    of guessing. (An earlier version fell back to assuming BF = plane 0 and
+    CY5 = plane 1, which is wrong for files that store Cy5 first.)
     """
-    cname = ch_name(channel)
+    wanted = _canonical_channel_name(channel)
+    if wanted is None:
+        raise ValueError(
+            f"Unknown channel {ch_name(channel)!r}; add it to CHANNEL_NAME_ALIASES."
+        )
 
-    # Try common metadata fields first
-    meta = getattr(img, "metadata", None)
-    candidate_lists = []
+    names = _image_channel_names(img)
+    if not names:
+        raise ValueError(
+            "Could not read channel names for this image, so the plane for "
+            f"{wanted!r} can't be identified."
+        )
 
-    if meta is not None:
-        for attr_name in ["channels", "channel_names", "channel_labels"]:
-            if hasattr(meta, attr_name):
-                vals = getattr(meta, attr_name)
-                try:
-                    vals = list(vals)
-                    candidate_lists.append(vals)
-                except Exception:
-                    pass
-
-    # Search metadata-provided channel names
-    for vals in candidate_lists:
-        normalized = [str(v).upper() for v in vals]
-        if cname.upper() in normalized:
-            return normalized.index(cname.upper())
-
-    # Safe fallback for your current 2-channel case
-    # Based on your usage throughout cvp.py and notebooks:
-    # BF first, CY5 second.
-    if getattr(img, "intensities", None) is not None:
-        arr = np.asarray(img.intensities)
-        if arr.ndim >= 3 and arr.shape[0] == 2:
-            fallback = {"BF": 0, "CY5": 1}
-            if cname.upper() in fallback:
-                return fallback[cname.upper()]
-
-    raise ValueError(f"Could not determine channel index for channel {cname!r}")
+    matches = [i for i, n in enumerate(names) if _canonical_channel_name(n) == wanted]
+    if len(matches) != 1:
+        raise ValueError(
+            f"Expected exactly one {wanted!r} plane, found {len(matches)} in channels {names}. "
+            "Check the ND2 channel names or CHANNEL_NAME_ALIASES."
+        )
+    return matches[0]
 
 
 def _extract_raw_channel_images(batch, channel):
@@ -236,10 +292,12 @@ def to_jsonable(x):
 def strip_segmentation_mask(sm):
     """
     Extract only what you need into a lightweight dict:
-      mask_image, label_image, intensity_image, cell_outlines, cell_properties
+      mask_image, label_image, cell_outlines, cell_properties
+    intensity_image is dropped: it is identical to the processed intensities,
+    which are saved separately.
     """
     out = {}
-    for f in ("mask_image", "label_image", "intensity_image"):
+    for f in ("mask_image", "label_image"):
         val = getattr(sm, f, None)
         if val is None:
             out[f] = None
@@ -271,7 +329,7 @@ class ExperimentStoreWriter:
     """
     Incrementally writes:
       - processed_intensities_dict[channel][im] -> Zarr
-      - segmentation_masks_dict[channel][im].{intensity_image,label_image,mask_image} -> Zarr
+      - segmentation_masks_dict[channel][im].{label_image,mask_image} -> Zarr
       - segmentation_masks_dict[channel][im].cell_outlines + cell_properties -> JSONL
 
     Arrays are created lazily and resized along batch axis.
@@ -367,7 +425,7 @@ class ExperimentStoreWriter:
                     for im in range(self.N):
                         sm = seg_list[im]
 
-                        for field in ["intensity_image", "label_image", "mask_image"]:
+                        for field in ["label_image", "mask_image"]:
                             arr = _get(sm, field)
                             if arr is not None:
                                 arr = np.asarray(arr)
