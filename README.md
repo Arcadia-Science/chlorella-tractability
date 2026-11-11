@@ -2,7 +2,7 @@
 
 Code for the pub *Chlorella vulgaris phenotypes are structured and predictable across environmental conditions* [TO FILL: pub link].
 
-We used high-throughput, label-free imaging to measure dozens of morphological features in 92 UV-mutagenized *Chlorella vulgaris* strains across six growth conditions (three temperatures × two growth stages). We then asked whether those phenotypes are reproducible, structured, and predictable in held-out environments.
+We used high-throughput, label-free imaging to measure dozens of morphological features in 91 UV-mutagenized *Chlorella vulgaris* strains across six growth conditions (three temperatures × two growth stages). We then asked whether those phenotypes are reproducible, structured, and predictable in held-out environments.
 
 ## Repository layout
 
