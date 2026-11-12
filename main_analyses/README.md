@@ -46,7 +46,8 @@ python -m ipykernel install --user --name chlorella-pub --display-name "Python (
 
 ## 3. Download the data
 
-The data are in the BioImage Archive under accession **[TO FILL: S-BIAD####]** ([TO FILL: link]).
+The data are in the BioImage Archive under accession **[S-BIAD4378]** (https://www.ebi.ac.uk/biostudies/BioImages/studies/S-BIAD4378).
+(about 124 GB: seven zipped Zarr v3 stores of about 16 GB each and seven JSONL feature files of 1.3–3.4 GB each)
 
 You need 7 experiments, each as one `.zarr` folder plus one `.jsonl` file:
 
@@ -68,7 +69,43 @@ Create two folders at the top of the repository:
 mkdir zarrs jsonls
 ```
 
-[TO FILL: download command(s), e.g. FTP/Aspera/HTTPS, depending on how the archive serves the files]
+### Everything (command line)
+
+Requires `curl`, `jq`, and `wget`. No account is needed.
+
+```bash
+# Look up the study's FTP location
+FTP_ROOT=$(curl -s https://www.ebi.ac.uk/biostudies/api/v1/studies/S-BIAD4378/info | jq -r .ftpLink)
+
+# Download zarrs/, jsonls/, and file_list.tsv into ./chlorella_phenotyping_pilot_data
+# (-c resumes interrupted downloads; rerun the same command to continue)
+wget -r -np -nH -c --cut-dirs=$(echo "${FTP_ROOT#ftp://ftp.ebi.ac.uk/}/Files" | tr '/' '\n' | wc -l) \
+  -P chlorella_phenotyping_pilot_data "$FTP_ROOT/Files/"
+```
+
+### A single file
+
+```bash
+wget -c "$FTP_ROOT/Files/jsonls/experiment_batches_20251209_091846_235_features.jsonl"
+```
+
+### Unpacking
+
+Each `.zarr.zip` unzips to a Zarr v3 store:
+
+```bash
+cd chlorella_phenotyping_pilot_data/zarrs
+for f in *.zarr.zip; do unzip -q "$f"; done
+```
+
+The analysis notebook expects `zarrs/` and `jsonls/` in the folder that
+`DATA_DIR` points to.
+
+### Other options
+
+- **Browser:** open the study page and use "Download all files," or select
+  individual files.
+- **Globus or Aspera:** faster for the full dataset; see the
 
 Put each `.zarr` folder in `zarrs/` and each `.jsonl` file in `jsonls/`. Keep the original file names; the notebook finds the files by name.
 
@@ -108,7 +145,7 @@ jupyter lab chlorella_phenotyping_pub_analyses.ipynb
 
 Select the **Python (chlorella-pub)** kernel, check the Parameters cell, and run all cells (*Run → Run All Cells*). The notebook creates `plots/` and `results/` next to itself.
 
-* **First run:** reading the feature files takes a while, and the full run takes [TO FILL: approximate time on your machine]. The feature matrices are then cached in `results/feature_matrices_cache*.npz`, so later runs skip the slow read. Set `USE_CACHE = False` to rebuild the cache.
+* **First run:** reading the feature files takes a while, and the full run takes ~15 min. The feature matrices are then cached in `results/feature_matrices_cache*.npz`, so later runs skip the slow read. Set `USE_CACHE = False` to rebuild the cache.
 * **Shorter run:** each supplemental section (alpha scan, strain identity, interaction examples, batch effects, feature correlations) can be switched off in `RUN_SUPPLEMENTAL`.
 
 ## Outputs
