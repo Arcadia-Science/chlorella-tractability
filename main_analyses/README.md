@@ -105,7 +105,7 @@ The analysis notebook expects `zarrs/` and `jsonls/` in the folder that
 
 - **Browser:** open the study page and use "Download all files," or select
   individual files.
-- **Globus or Aspera:** faster for the full dataset; see the
+- **Globus or Aspera:** faster for the full dataset; see the BioImage Archive download guide (https://www.ebi.ac.uk/bioimage-archive/help-download).
 
 Put each `.zarr` folder in `zarrs/` and each `.jsonl` file in `jsonls/`. Keep the original file names; the notebook finds the files by name.
 
