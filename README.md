@@ -20,4 +20,4 @@ The segmented data are already on the BioImage Archive, so you don't need to rer
 
 ## Data
 
-Segmented images (`zarr`) and per-cell features (`jsonl`) for all 7 experiments: BioImage Archive, [TO FILL: accession/link].
+Segmented images (`zarr`) and per-cell features (`jsonl`) for all 7 experiments: BioImage Archive, [(https://www.ebi.ac.uk/biostudies/BioImages/studies/S-BIAD4378)].
