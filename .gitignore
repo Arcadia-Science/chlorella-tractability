@@ -11,3 +11,6 @@ results/
 __pycache__/
 .ipynb_checkpoints/
 .DS_Store
+
+# Archive file listing downloaded by download_data.sh
+file_list.tsv

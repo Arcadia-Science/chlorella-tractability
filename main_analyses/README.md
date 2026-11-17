@@ -1,6 +1,6 @@
 # Chlorella phenotyping pub: analysis code
 
-This folder reproduces every quantitative result and data figure in the pub "Label-free imaging of *Chlorella vulgaris* captures structured phenotypes", plus the supplemental analyses behind the methods.
+This folder reproduces every quantitative result and data figure in the pub ["Label-free imaging of *Chlorella vulgaris* captures structured phenotypes"](https://thestacks.org/publications/result-chlorella-tractability), plus the supplemental analyses behind the methods.
 
 | File | What it is |
 |---|---|
@@ -71,7 +71,13 @@ mkdir zarrs jsonls
 
 ### Everything (command line)
 
-Requires `curl`, `jq`, and `wget`. No account is needed.
+The quickest way is the script at the top of the repository. It downloads everything below, unzips the zarr stores, and checks that all 14 items are in place:
+
+```bash
+bash download_data.sh
+```
+
+It needs `curl`, `jq`, `wget`, and `unzip`, and is safe to rerun: interrupted downloads resume. To do the same steps by hand (no account is needed):
 
 ```bash
 # Look up the study's FTP location

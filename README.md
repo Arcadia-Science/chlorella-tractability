@@ -1,6 +1,6 @@
 # Chlorella tractability
 
-Code for the pub "Label-free imaging of *Chlorella vulgaris* captures structured phenotypes" [TO FILL: pub link].
+Code for the pub ["Label-free imaging of *Chlorella vulgaris* captures structured phenotypes"](https://thestacks.org/publications/result-chlorella-tractability).
 
 We used high-throughput, label-free imaging to measure dozens of morphological features in 91 UV-mutagenized *Chlorella vulgaris* strains across six growth conditions (three temperatures × two growth stages). We then asked whether those phenotypes are reproducible, structured, and predictable in held-out environments.
 
@@ -14,7 +14,7 @@ We used high-throughput, label-free imaging to measure dozens of morphological f
 
 ## Reproducing the pub
 
-Follow [`main_analyses/README.md`](main_analyses/README.md). It covers setting up the environment, downloading the data from the BioImage Archive ([S-BIAD4378](https://www.ebi.ac.uk/biostudies/BioImages/studies/S-BIAD4378)), where to put it, and running the notebook.
+Follow [`main_analyses/README.md`](main_analyses/README.md). To fetch the data, run `bash download_data.sh` from the top of the repository. It covers setting up the environment, downloading the data from the BioImage Archive ([S-BIAD4378](https://www.ebi.ac.uk/biostudies/BioImages/studies/S-BIAD4378)), where to put it, and running the notebook.
 
 The segmented data are already on the BioImage Archive, so you don't need to rerun segmentation to reproduce the results.
 
