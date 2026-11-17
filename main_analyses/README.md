@@ -1,6 +1,6 @@
 # Chlorella phenotyping pub: analysis code
 
-This folder reproduces every quantitative result and data figure in the pub *Chlorella vulgaris phenotypes are structured and predictable across environmental conditions*, plus the supplemental analyses behind the methods.
+This folder reproduces every quantitative result and data figure in the pub "Label-free imaging of *Chlorella vulgaris* captures structured phenotypes", plus the supplemental analyses behind the methods.
 
 | File | What it is |
 |---|---|
@@ -46,7 +46,7 @@ python -m ipykernel install --user --name chlorella-pub --display-name "Python (
 
 ## 3. Download the data
 
-The data are in the BioImage Archive under accession **[S-BIAD4378]** (https://www.ebi.ac.uk/biostudies/BioImages/studies/S-BIAD4378).
+The data are in the BioImage Archive under accession [**S-BIAD4378**](https://www.ebi.ac.uk/biostudies/BioImages/studies/S-BIAD4378).
 (about 124 GB: seven zipped Zarr v3 stores of about 16 GB each and seven JSONL feature files of 1.3–3.4 GB each)
 
 You need 7 experiments, each as one `.zarr` folder plus one `.jsonl` file:
@@ -77,10 +77,11 @@ Requires `curl`, `jq`, and `wget`. No account is needed.
 # Look up the study's FTP location
 FTP_ROOT=$(curl -s https://www.ebi.ac.uk/biostudies/api/v1/studies/S-BIAD4378/info | jq -r .ftpLink)
 
-# Download zarrs/, jsonls/, and file_list.tsv into ./chlorella_phenotyping_pilot_data
+# Download zarrs/, jsonls/, and file_list.tsv into the current folder.
+# Run this from the top of the repository, so the data land where the notebook looks.
 # (-c resumes interrupted downloads; rerun the same command to continue)
 wget -r -np -nH -c --cut-dirs=$(echo "${FTP_ROOT#ftp://ftp.ebi.ac.uk/}/Files" | tr '/' '\n' | wc -l) \
-  -P chlorella_phenotyping_pilot_data "$FTP_ROOT/Files/"
+  "$FTP_ROOT/Files/"
 ```
 
 ### A single file
@@ -94,8 +95,9 @@ wget -c "$FTP_ROOT/Files/jsonls/experiment_batches_20251209_091846_235_features.
 Each `.zarr.zip` unzips to a Zarr v3 store:
 
 ```bash
-cd chlorella_phenotyping_pilot_data/zarrs
+cd zarrs
 for f in *.zarr.zip; do unzip -q "$f"; done
+cd ..
 ```
 
 The analysis notebook expects `zarrs/` and `jsonls/` in the folder that
