@@ -62,7 +62,7 @@ Every array is chunked one image per chunk and compressed (zstd), so reading one
   conda activate chlorella-seg
   pip install "arcadia-microscopy-tools @ git+https://github.com/Arcadia-Science/arcadia-microscopy-tools.git@e541caa8fdb685507f115fbd3e3b236ddb0318d9" "zarr>=3" psutil natsort jupyterlab ipykernel
   ```
-  This also installs Cellpose and PyTorch. On an Apple Silicon Mac you can instead use the full environment in [`../main_analyses/env.yml`](../main_analyses/env.yml).
+  This also installs Cellpose and PyTorch. Use this environment rather than the ones in `main_analyses/`: arcadia-microscopy-tools needs an older NumPy (below 2.1) than the main analysis uses.
 * **Internet on the first run.** Cellpose downloads its model weights the first time it runs.
 * **Disk space.** About 10 GB per 96-well, 9-FoV, 2-channel experiment.
 * **No GPU needed.**
@@ -78,8 +78,9 @@ Put all ND2 files for one experiment (one plate in one condition) in one folder.
 Open `segmentation_2_zarr_example.ipynb` and set:
 
 ```python
+ND2_ROOT = "/path/to/nd2_data"                         # folder with one subfolder of ND2 files per experiment
 n_fovs_2_segment = 1                                   # fields of view per well to segment
-data_loc_<ID> = "/path/to/your/nd2_folder"             # folder from step 1
+data_loc_<ID> = f"{ND2_ROOT}/<ID>"                     # folder from step 1
 model_ran_<ID> = False                                 # True skips segmentation
 ```
 
@@ -106,7 +107,7 @@ cvseg.run_and_stream_save_channelwise_stripped(
 )
 ```
 
-`segment_chlorella_strains.ipynb` does this for each of the 7 pub experiments. Set each experiment's `model_ran_<ID>` flag to `False` to rerun it. The outputs go to `../zarrs/` and `../jsonls/`, where the main analysis expects them. Name them `experiment_batches_<ID>_features.{zarr,jsonl}` so the main notebook can find them by experiment ID.
+`segment_chlorella_strains.ipynb` does this for each of the 7 pub experiments. Set `ND2_ROOT` at the top, then set an experiment's `model_ran_<ID>` flag to `False` to rerun it. All flags are `True` by default, so running the whole notebook doesn't overwrite any data. The raw ND2 files for the pub aren't deposited; they're available on request. The outputs go to `../zarrs/` and `../jsonls/`, where the main analysis expects them. Name them `experiment_batches_<ID>_features.{zarr,jsonl}` so the main notebook can find them by experiment ID.
 
 For each field of view, then for each channel, the pipeline:
 
