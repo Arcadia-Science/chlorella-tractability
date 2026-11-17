@@ -12,7 +12,7 @@ This folder reproduces every quantitative result and data figure in the pub ["La
 
 ## Requirements
 
-* About 130 GB of free disk space for the data (111 GB of zarr image stores + 14 GB of JSONL feature files)
+* About 240 GB of free disk space while downloading (the zipped zarr stores, the unzipped stores, and the JSONL files), or about 125 GB once the zip files are deleted (111 GB of zarr image stores + 14 GB of JSONL feature files)
 * [Conda](https://docs.conda.io/en/latest/miniconda.html) (Miniconda or Anaconda) and Git
 * Python 3.11 or later (the conda environments install 3.13)
 
@@ -77,7 +77,9 @@ The quickest way is the script at the top of the repository. It downloads everyt
 bash download_data.sh
 ```
 
-It needs `curl`, `jq`, `wget`, and `unzip`, and is safe to rerun: interrupted downloads resume. To do the same steps by hand (no account is needed):
+It needs only `curl` and `unzip`, which come with macOS and Linux, and is safe to rerun: interrupted downloads resume. No account is needed.
+
+To do the same by hand instead, you need `jq` and `wget` as well (on a Mac: `brew install jq wget`):
 
 ```bash
 # Look up the study's FTP location
