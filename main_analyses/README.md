@@ -1,6 +1,6 @@
 # Chlorella phenotyping pub: analysis code
 
-This folder reproduces every quantitative result and data figure in the pub "Label-free imaging of *Chlorella vulgaris* captures structured phenotypes", plus the supplemental analyses behind the methods.
+This folder reproduces every quantitative result and data figure in the pub ["Label-free imaging of *Chlorella vulgaris* captures structured phenotypes"](https://thestacks.org/publications/result-chlorella-tractability), plus the supplemental analyses behind the methods.
 
 | File | What it is |
 |---|---|
