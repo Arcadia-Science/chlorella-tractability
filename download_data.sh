@@ -4,8 +4,10 @@
 # and check that all 7 zarr stores and 7 JSONL files are present.
 #
 # Usage (from anywhere):   bash download_data.sh
-# Needs: curl, jq, wget, unzip. About 125 GB of free disk space.
-# Safe to rerun: interrupted downloads resume, and finished stores are not re-unzipped.
+# Needs only curl and unzip, which come with macOS and Linux.
+# Disk space: about 240 GB while downloading (zips + unzipped stores);
+# about 125 GB once the .zarr.zip files are deleted.
+# Safe to rerun: partial downloads resume, finished files are skipped.
 
 set -euo pipefail
 
@@ -23,33 +25,57 @@ IDS=(
 # Always work from the top of the repository (where this script lives).
 cd "$(dirname "$0")"
 
-for tool in curl jq wget unzip; do
+for tool in curl unzip; do
   command -v "$tool" >/dev/null 2>&1 || { echo "Error: '$tool' is not installed." >&2; exit 1; }
 done
 
-# 1. Look up the study's FTP location.
-FTP_ROOT=$(curl -fsS "https://www.ebi.ac.uk/biostudies/api/v1/studies/${ACCESSION}/info" | jq -r .ftpLink)
-if [[ -z "$FTP_ROOT" || "$FTP_ROOT" == "null" ]]; then
-  echo "Error: could not find the FTP location for ${ACCESSION}." >&2
+# 1. Look up the study's file location (read from the archive's JSON without needing jq).
+INFO=$(curl -fsS "https://www.ebi.ac.uk/biostudies/api/v1/studies/${ACCESSION}/info")
+FTP_ROOT=$(printf '%s' "$INFO" | sed -n 's/.*"ftpLink"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+if [[ -z "$FTP_ROOT" ]]; then
+  echo "Error: could not find the file location for ${ACCESSION}." >&2
   exit 1
 fi
-echo "Downloading ${ACCESSION} from ${FTP_ROOT}/Files/ ..."
+# The same files are served over HTTPS, which works on networks that block FTP.
+HTTPS_ROOT="${FTP_ROOT/#ftp:\/\//https://}"
 
-# 2. Download zarrs/, jsonls/ and file_list.tsv into this folder.
-#    --cut-dirs drops the archive's path prefix so the folders land here directly.
-CUT_DIRS=$(echo "${FTP_ROOT#ftp://ftp.ebi.ac.uk/}/Files" | tr '/' '\n' | wc -l | tr -d ' ')
-wget -r -np -nH -c --cut-dirs="$CUT_DIRS" "${FTP_ROOT}/Files/"
+# Download one file with resume; try HTTPS first, then FTP.
+fetch() {  # fetch <path under Files/> <local path>
+  local rel="$1" out="$2"
+  if [[ -f "$out" && ! -f "$out.part" ]]; then
+    echo "  $out: already downloaded"
+    return 0
+  fi
+  echo "  downloading $out"
+  touch "$out.part"
+  if curl -fL --retry 5 --retry-delay 10 -C - -o "$out.tmp" "${HTTPS_ROOT}/Files/${rel}" \
+     || curl -fL --retry 5 --retry-delay 10 -C - -o "$out.tmp" "${FTP_ROOT}/Files/${rel}"; then
+    mv "$out.tmp" "$out"
+    rm -f "$out.part"
+  else
+    echo "Error: could not download ${rel}. Rerun this script to resume." >&2
+    exit 1
+  fi
+}
+
+# 2. Download the 7 JSONL files and 7 zipped zarr stores.
+mkdir -p zarrs jsonls
+echo "Downloading ${ACCESSION} into $(pwd) ..."
+for id in "${IDS[@]}"; do
+  name="experiment_batches_${id}_features"
+  fetch "jsonls/${name}.jsonl" "jsonls/${name}.jsonl"
+  [[ -d "zarrs/${name}.zarr" ]] || fetch "zarrs/${name}.zarr.zip" "zarrs/${name}.zarr.zip"
+done
 
 # 3. Unzip each zarr store (skipped if that store is already unzipped).
 echo "Unzipping zarr stores ..."
 for id in "${IDS[@]}"; do
   store="zarrs/experiment_batches_${id}_features.zarr"
-  zip="${store}.zip"
   if [[ -d "$store" ]]; then
     echo "  ${store}: already unzipped"
-  elif [[ -f "$zip" ]]; then
-    echo "  unzipping ${zip}"
-    unzip -q "$zip" -d zarrs
+  else
+    echo "  unzipping ${store}.zip"
+    unzip -q "${store}.zip" -d zarrs
   fi
 done
 
@@ -64,7 +90,8 @@ done
 
 if [[ $missing -eq 0 ]]; then
   echo "All 7 zarr stores and 7 JSONL files are in place."
-  echo "The .zarr.zip files in zarrs/ are no longer needed and can be deleted to save about 110 GB."
+  echo "The .zarr.zip files in zarrs/ are no longer needed; delete them to free about 110 GB:"
+  echo "  rm zarrs/*.zarr.zip"
 else
   echo "Some files are missing. Rerun this script to resume the download." >&2
   exit 1
