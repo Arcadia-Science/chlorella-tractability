@@ -1,0 +1,51 @@
+cff-version: 1.2.0
+message: If you use this software, please cite the associated publication.
+title: Label-free imaging of Chlorella vulgaris captures structured phenotypes
+doi: 10.57844/arcadia-m5nb-ru1y
+authors:
+- family-names: Anyoha
+  given-names: Rockwell
+  affiliation: Arcadia Science
+  orcid: https://orcid.org/0000-0002-0363-3095
+- family-names: Bell
+  given-names: Audrey
+  affiliation: Arcadia Science
+  orcid: https://orcid.org/0009-0008-2270-1613
+- family-names: Bigge
+  given-names: Brae
+  affiliation: Arcadia Science
+  orcid: https://orcid.org/0000-0002-0907-4597
+- family-names: Braverman
+  given-names: Ben
+  affiliation: Arcadia Science
+  orcid: https://orcid.org/0009-0005-0334-7004
+- family-names: Essock-Burns
+  given-names: Tara
+  affiliation: Arcadia Science
+  orcid: https://orcid.org/0000-0003-4159-6974
+- family-names: Hochstrasser
+  given-names: Megan
+  affiliation: Arcadia Science
+  orcid: https://orcid.org/0000-0002-4404-078X
+- family-names: Lane
+  given-names: Ryan
+  affiliation: Arcadia Science
+  orcid: https://orcid.org/0000-0002-5887-2069
+- family-names: Roth
+  given-names: Robert
+  affiliation: Arcadia Science
+  orcid: https://orcid.org/0000-0003-2604-1866
+preferred-citation:
+  title: Label-free imaging of Chlorella vulgaris captures structured phenotypes
+  type: article
+  doi: 10.57844/arcadia-m5nb-ru1y
+  authors:
+  - family-names: Anyoha
+    given-names: Rockwell
+    affiliation: Arcadia Science
+    orcid: https://orcid.org/0000-0002-0363-3095
+  - family-names: Bigge
+    given-names: Brae
+    affiliation: Arcadia Science
+    orcid: https://orcid.org/0000-0002-0907-4597
+  year: 2026
